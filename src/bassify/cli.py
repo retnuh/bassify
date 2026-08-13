@@ -5,6 +5,7 @@ from typing import Annotated
 
 import typer
 
+from bassify import detect as detect_mod
 from bassify import extract as extract_mod
 from bassify.slice import SliceSpec
 
@@ -43,6 +44,34 @@ def extract(
     effective_lowpass = None if no_lowpass else lowpass
     extract_mod.extract_bass(
         input_path, output=output, lowpass=effective_lowpass, slice_spec=spec, force=force
+    )
+
+
+@app.command()
+def detect(
+    bass_path: Path,
+    output: Annotated[Path | None, typer.Option("-o", "--output")] = None,
+    threshold: Annotated[
+        float, typer.Option("--threshold", help="silencedetect noise floor in dB.")
+    ] = -40.0,
+    min_gap: Annotated[
+        float,
+        typer.Option("--min-gap", help="Minimum quiet run (s) to count as a gap."),
+    ] = 1.0,
+    duration: Annotated[
+        float | None,
+        typer.Option("--duration", help="Process only N seconds (ffmpeg -t)."),
+    ] = None,
+    start: Annotated[
+        float | None,
+        typer.Option("--start", help="Start offset in seconds (ffmpeg -ss)."),
+    ] = None,
+    force: Annotated[bool, typer.Option("--force", help="Overwrite existing output.")] = False,
+) -> None:
+    """Detect silence gaps in the bass -> windows JSON."""
+    spec = SliceSpec(duration=duration, start=start)
+    detect_mod.detect_windows(
+        bass_path, output=output, threshold=threshold, min_gap=min_gap, slice_spec=spec, force=force
     )
 
 
