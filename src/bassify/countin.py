@@ -59,7 +59,7 @@ def find_guitar_cutoff(
     window_start: float,
     window_end: float,
     tol: float = 0.05,
-    margin: float = 0.02,
+    margin: float = 0.005,
 ) -> float:
     """Return the cutoff time just before the first guitar-only onset.
 
@@ -108,20 +108,21 @@ def find_guitar_cutoff(
         )
         return cutoff
 
-    # No guitar-only onset found: fall back to window_end
+    # No guitar-only onset found: fall back to last_click + 0.10 (capped at window_end)
+    cutoff = min(window_end, last_click + 0.10)
     print(
         f"countin: [{window_start:.3f},{window_end:.3f}] "
-        f"last_click={last_click:.3f} NO guitar onset -> fallback={window_end:.3f}"
+        f"last_click={last_click:.3f} NO guitar onset -> fallback={cutoff:.3f}"
     )
-    return window_end
+    return cutoff
 
 
 # ---------------------------------------------------------------------------
 # librosa I/O layer — not unit-tested; exercised via UAT on real tracks
 # ---------------------------------------------------------------------------
 
-# Module-level audio cache: (path, sr, array) per loaded file
-_audio_cache: dict[str, tuple[int, object]] = {}
+# Module-level audio cache: path -> (y, sr) per loaded file
+_audio_cache: dict[str, tuple[object, int]] = {}
 
 
 def _load_cached(path: str | Path) -> tuple[object, int]:
@@ -131,9 +132,8 @@ def _load_cached(path: str | Path) -> tuple[object, int]:
     key = str(path)
     if key not in _audio_cache:
         y, sr = librosa.load(str(path), sr=None, mono=True)
-        _audio_cache[key] = (sr, y)
-    sr, y = _audio_cache[key]
-    return y, sr
+        _audio_cache[key] = (y, sr)
+    return _audio_cache[key]
 
 
 def _onsets_in_window(
