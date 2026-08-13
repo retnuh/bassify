@@ -10,6 +10,7 @@ import pytest
 
 from bassify.combine import (
     apply_donor_splice,
+    apply_even_bass_ramp,
     build_bass_duck,
     build_filtergraph,
     build_gate,
@@ -246,3 +247,122 @@ class TestApplyDonorSplice:
         # last_click_sample=100, donor=100 -> would end at 200, array only 150 long
         result = apply_donor_splice(combined, donor, last_click_sample=100, fade_samples=5)
         assert len(result) == 150  # length preserved
+
+    # Length-invariant: apply_donor_splice must never change array length
+    def test_length_invariant_donor_splice(self):
+        """Output length must equal input length regardless of donor size."""
+        for n in [100, 1000, 44100]:
+            combined = np.random.default_rng(0).random(n)
+            donor = np.ones(200, dtype=np.float64)
+            result = apply_donor_splice(combined, donor, last_click_sample=50, fade_samples=10)
+            assert len(result) == n, f"length changed for n={n}"
+
+
+# ---------------------------------------------------------------------------
+# apply_even_bass_ramp (pure numpy helper)
+# ---------------------------------------------------------------------------
+
+
+class TestApplyEvenBassRamp:
+    def test_region_before_last_click_untouched(self):
+        """Samples before last_click_sample must not be altered."""
+        combined = np.ones(1000, dtype=np.float64)
+        bass = np.ones(1000, dtype=np.float64)
+        result = apply_even_bass_ramp(combined, bass, last_click_sample=300, bass_onset_sample=700)
+        np.testing.assert_array_equal(result[:300], combined[:300])
+
+    def test_region_after_bass_onset_untouched(self):
+        """Samples at or after bass_onset_sample must not be altered."""
+        combined = np.ones(1000, dtype=np.float64)
+        bass = np.ones(1000, dtype=np.float64)
+        result = apply_even_bass_ramp(combined, bass, last_click_sample=300, bass_onset_sample=700)
+        np.testing.assert_array_equal(result[700:], combined[700:])
+
+    def test_ramp_starts_at_zero_gain(self):
+        """First sample of ramp span adds zero (gain=0 at last_click)."""
+        combined = np.zeros(1000, dtype=np.float64)
+        bass = np.full(1000, 2.0, dtype=np.float64)
+        result = apply_even_bass_ramp(combined, bass, last_click_sample=100, bass_onset_sample=500)
+        # linspace(0,1,400)[0] = 0.0 -> bass contribution = 2.0 * 0.0 = 0.0
+        assert result[100] == pytest.approx(0.0)
+
+    def test_ramp_reaches_full_gain_at_bass_onset(self):
+        """Last sample of ramp span adds bass at full gain (gain→1 at bass_onset)."""
+        combined = np.zeros(1000, dtype=np.float64)
+        bass = np.full(1000, 2.0, dtype=np.float64)
+        result = apply_even_bass_ramp(combined, bass, last_click_sample=100, bass_onset_sample=500)
+        # linspace(0,1,400)[-1] = 1.0 -> bass contribution = 2.0 * 1.0 = 2.0
+        assert result[499] == pytest.approx(2.0)
+
+    def test_additive_on_existing_content(self):
+        """Ramp adds onto existing combined content (e.g. donor already present)."""
+        combined = np.full(1000, 1.0, dtype=np.float64)
+        bass = np.full(1000, 2.0, dtype=np.float64)
+        result = apply_even_bass_ramp(combined, bass, last_click_sample=200, bass_onset_sample=600)
+        # Mid-point gain ≈ 0.5 -> combined[400] = 1.0 + 2.0*0.5 ≈ 2.0
+        mid = 400
+        span = 600 - 200
+        gain_at_mid = np.linspace(0.0, 1.0, span)[mid - 200]
+        assert result[mid] == pytest.approx(1.0 + 2.0 * gain_at_mid)
+
+    def test_combined_not_mutated(self):
+        """Input combined array must not be modified in place."""
+        combined = np.ones(500, dtype=np.float64)
+        original_copy = combined.copy()
+        bass = np.ones(500, dtype=np.float64)
+        apply_even_bass_ramp(combined, bass, last_click_sample=100, bass_onset_sample=300)
+        np.testing.assert_array_equal(combined, original_copy)
+
+    def test_zero_span_no_change(self):
+        """last_click_sample == bass_onset_sample produces no change."""
+        combined = np.full(500, 3.0, dtype=np.float64)
+        bass = np.full(500, 1.0, dtype=np.float64)
+        result = apply_even_bass_ramp(combined, bass, last_click_sample=200, bass_onset_sample=200)
+        np.testing.assert_array_equal(result, combined)
+
+    # Length-invariant: apply_even_bass_ramp must never change array length
+    def test_length_invariant_even_ramp(self):
+        """Output length must equal input length."""
+        for n in [100, 1000, 44100]:
+            rng = np.random.default_rng(1)
+            combined = rng.random(n)
+            bass = rng.random(n)
+            result = apply_even_bass_ramp(combined, bass, last_click_sample=10, bass_onset_sample=n)
+            assert len(result) == n, f"length changed for n={n}"
+
+
+# ---------------------------------------------------------------------------
+# build_bass_duck — count-in window variant (hard-zero entire gap)
+# ---------------------------------------------------------------------------
+
+
+class TestBuildBassDuckClickWindow:
+    def test_click_window_zeros_entire_gap_to_bass_onset(self):
+        """A window with last_click should subtract 1 for the full [start, bass_onset] span."""
+        windows = [{"start": 0.0, "end": 6.354, "bass_onset": 6.612, "last_click": 6.211}]
+        expr = build_bass_duck(windows, rampup=0.15)
+        # Should contain a single -1*between(t, 0, 6.612) term — no rampup split
+        assert "-1*between(t,0,6.612)" in expr
+        # Should NOT contain the ramp-up denominator for this window
+        # (the rampup is only in fallback windows)
+        assert "6.462" not in expr  # gap_end = 6.612 - 0.15 would be 6.462
+
+    def test_fallback_window_keeps_ramp(self):
+        """A window without last_click still uses the fixed rampup logic."""
+        windows = [{"start": 0.0, "end": 6.354, "bass_onset": 6.612}]
+        expr = build_bass_duck(windows, rampup=0.15)
+        # gap_end = 6.612 - 0.15 = 6.462 present
+        assert "6.462" in expr
+        assert "6.612" in expr
+
+    def test_mixed_windows_correct_routing(self):
+        """Click windows and fallback windows in same list use their respective paths."""
+        windows = [
+            {"start": 0.0, "end": 6.2, "bass_onset": 6.6, "last_click": 6.0},
+            {"start": 20.0, "end": 24.9, "bass_onset": 25.2},
+        ]
+        expr = build_bass_duck(windows, rampup=0.15)
+        # Click window: hard-zero to 6.6
+        assert "-1*between(t,0,6.6)" in expr
+        # Fallback window: gap_end = 25.2 - 0.15 = 25.05
+        assert "25.05" in expr

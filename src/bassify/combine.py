@@ -1,14 +1,19 @@
 """Combine bass (ducked in gaps) + gated original (with fade) into a single mono mix.
 
-Filtergraph strategy (duck00 variant from experiments/duck_bass.py):
+Filtergraph strategy:
 - Original gate: pass [window_start, cutoff] with a linear fade-out over the last
   `fade` seconds ending at cutoff.  Nothing passes after cutoff.
-- Bass duck: gain = 0 during each gap [window_start, bass_onset - rampup], then
-  linear ramp 0->1 over [bass_onset - rampup, bass_onset].  Full (1) elsewhere.
-- Mix: [gated-original] + [ducked-bass] via amix=normalize=0.
+- Bass duck (count-in windows with last_click): bass is zeroed ALL the way from
+  window_start to bass_onset in ffmpeg; the numpy post-step applies an even
+  linspace(0->1) ramp from last_click to bass_onset, so bass rises smoothly under
+  and after the donor click with zero dead-silence cliff.
+- Bass duck (fallback windows without last_click): gain = 0 during
+  [window_start, bass_onset - rampup], linear ramp 0->1 over the final rampup
+  seconds.  Full (1) elsewhere.
+- Mix: [gated-original] + [ducked-bass] via amix=normalize=0, then numpy post-step
+  for count-in windows (donor splice + even bass ramp).
 
-Backward compat: windows without "bass_onset" treat bass_onset = end (cutoff),
-so old-style windows (no ducking distinction) combine without duck-vs-cutoff gap.
+Backward compat: windows without "bass_onset" treat bass_onset = end (cutoff).
 """
 
 from __future__ import annotations
@@ -78,13 +83,17 @@ def build_bass_duck(windows: list[dict], rampup: float = 0.15) -> str:
     """Return the ffmpeg volume expression that ducks the bass in silence gaps.
 
     Duck = 0.0 (bass hard-muted) during each gap.
-    For each window [start, bass_onset]:
-      - Gain 0 during [start, bass_onset - rampup] (the gap).
-      - Linear ramp 0->1 during [bass_onset - rampup, bass_onset].
-      - Full (1) everywhere outside gaps.
 
-    Formula: start at 1, subtract (1-duck)=1 in gap, restore in ramp.
-    With duck=0: subtract 1 in gap, subtract (1-progress) in ramp.
+    **Count-in windows** (have ``last_click`` key): the ffmpeg expression ducks
+    bass to zero across the ENTIRE span [start, bass_onset].  The numpy post-step
+    in :func:`_apply_donor_splice_to_file` replaces that hard-zero with an even
+    linspace(0→1) ramp from last_click to bass_onset, so there is no dead-silence
+    cliff between the donor click and the bass ramp.
+
+    **Fallback windows** (no ``last_click``): legacy behaviour — gain 0 during
+    [start, bass_onset - rampup], linear ramp 0→1 over the final rampup seconds.
+
+    Full (1) everywhere outside gaps.
 
     Parameters
     ----------
@@ -92,7 +101,7 @@ def build_bass_duck(windows: list[dict], rampup: float = 0.15) -> str:
         List of window dicts with 'start' and optionally 'bass_onset'.
         If 'bass_onset' is absent, falls back to 'end' (backward compat).
     rampup:
-        Duration of the 0->1 ramp into the bass onset.
+        Duration of the 0->1 ramp used for fallback (non-click) windows.
 
     Returns
     -------
@@ -105,11 +114,14 @@ def build_bass_duck(windows: list[dict], rampup: float = 0.15) -> str:
     for w in windows:
         s = w["start"]
         b = w.get("bass_onset", w["end"])  # true music onset
-        gap_end = b - rampup
-        # During [start, gap_end]: subtract 1 (duck to 0)
-        terms.append(f"-1*between(t,{s:g},{gap_end:g})")
-        # During [gap_end, bass_onset]: linear restore 0->1 (subtract remaining duck)
-        terms.append(f"-1*between(t,{gap_end:g},{b:g})*(1-((t-{gap_end:g})/{rampup:g}))")
+        if "last_click" in w:
+            # Count-in window: hard-zero entire gap; numpy post-step applies even ramp.
+            terms.append(f"-1*between(t,{s:g},{b:g})")
+        else:
+            # Fallback window: zero gap, then 150ms ramp (original behaviour).
+            gap_end = b - rampup
+            terms.append(f"-1*between(t,{s:g},{gap_end:g})")
+            terms.append(f"-1*between(t,{gap_end:g},{b:g})*(1-((t-{gap_end:g})/{rampup:g}))")
 
     return "".join(terms)
 
@@ -160,19 +172,23 @@ def apply_donor_splice(
     last_click_sample: int,
     fade_samples: int,
 ) -> np.ndarray:
-    """Overwrite combined[last_click_sample:] with the donor clip (faded in/out).
+    """Add a faded donor clip at last_click_sample into combined (purely additive).
 
     The region before last_click_sample is untouched.  Samples after
-    last_click_sample + len(donor) are also untouched (bass ramp, etc.).
+    last_click_sample + len(donor) are also untouched.
 
-    The donor clip is modified in-place within a copy (the input array is not
-    mutated).  A linear fade-in of `fade_samples` is applied at the start of
-    the donor and a linear fade-out of `fade_samples` at the end.
+    The donor clip is faded-in/out in a local copy (input arrays are not mutated).
+    A linear fade-in of `fade_samples` is applied at the start of the donor and a
+    linear fade-out of `fade_samples` at the end.
+
+    This function is purely additive: it does NOT zero the target region first.
+    The caller is responsible for ensuring the combined already has the correct
+    baseline in the splice zone (e.g. the even bass ramp from apply_even_bass_ramp).
 
     Parameters
     ----------
     combined:
-        Full audio array (1-D float32/float64) from the ffmpeg mix step.
+        Full audio array (1-D float32/float64).
     donor:
         Clip extracted from the original mix at the prev-click onset.
     last_click_sample:
@@ -182,7 +198,7 @@ def apply_donor_splice(
 
     Returns
     -------
-    New array with the donor spliced in, same dtype and length as `combined`.
+    New array with the donor added, same dtype and length as `combined`.
     """
     out = combined.copy()
     d = donor.copy()
@@ -194,15 +210,56 @@ def apply_donor_splice(
     if fade_samples > 0 and len(d) >= fade_samples:
         d[-fade_samples:] *= np.linspace(1.0, 0.0, fade_samples)
 
-    end_sample = last_click_sample + len(d)
-    # Zero out the combined in the target range (removes old click contribution)
-    out[last_click_sample:end_sample] = 0.0
-    # Add donor (bass ramp contribution in this range is already zeroed; we write
-    # donor only — the bass ramp outside the donor span remains in out)
+    # Add donor (purely additive — bass ramp already applied by apply_even_bass_ramp)
     donor_len_actual = min(len(d), len(out) - last_click_sample)
     if donor_len_actual > 0:
         out[last_click_sample : last_click_sample + donor_len_actual] += d[:donor_len_actual]
 
+    return out
+
+
+def apply_even_bass_ramp(
+    combined: np.ndarray,
+    bass: np.ndarray,
+    last_click_sample: int,
+    bass_onset_sample: int,
+) -> np.ndarray:
+    """Add a linearly-ramped bass contribution from last_click to bass_onset.
+
+    The ffmpeg step has hard-zeroed the bass across the entire count-in gap.
+    This function adds it back with gain linspace(0, 1) over
+    [last_click_sample, bass_onset_sample], so bass rises evenly from silence
+    to full underneath and after the donor click.  No dead-silence cliff.
+
+    The input arrays are not mutated; a copy of `combined` is returned.
+
+    Parameters
+    ----------
+    combined:
+        Current mixed audio array (1-D, same length as bass).
+    bass:
+        Full bass track array loaded at the same sample rate as combined.
+    last_click_sample:
+        Sample index of the last click onset.
+    bass_onset_sample:
+        Sample index of the music/bass onset (= bass_onset * sr).
+
+    Returns
+    -------
+    New array with even bass ramp added, same dtype and length as `combined`.
+    """
+    out = combined.copy()
+    span = bass_onset_sample - last_click_sample
+    if span <= 0:
+        return out
+    # Clamp to array bounds
+    i0 = max(0, last_click_sample)
+    i1 = min(len(out), bass_onset_sample)
+    actual_span = i1 - i0
+    if actual_span <= 0:
+        return out
+    ramp = np.linspace(0.0, 1.0, span)[:actual_span]
+    out[i0:i1] += bass[i0:i1] * ramp
     return out
 
 
@@ -214,14 +271,19 @@ def apply_donor_splice(
 def _apply_donor_splice_to_file(
     out_path: Path,
     original_path: Path,
+    bass_path: Path,
     windows: list[dict],
-    rampup: float = 0.15,
 ) -> None:
-    """For each window with prev_click and last_click, splice donor into combined WAV.
+    """For each count-in window (has prev_click + last_click), splice donor + even bass ramp.
 
-    Loads the combined WAV written by ffmpeg, loads the original mix (resampled
-    to the combined's sample rate), applies the donor splice for each eligible
-    window, and writes the result back to out_path.
+    The ffmpeg step has hard-zeroed the bass across [start, bass_onset] for these
+    windows.  This function:
+      1. Adds an even linspace(0→1) bass ramp from last_click to bass_onset.
+      2. Splices a 300ms copy of the original at prev_click's onset, placed at
+         last_click's onset (10ms in/out fades), on top of the ramp.
+
+    Windows without prev_click/last_click are skipped — their ffmpeg-produced
+    output is unchanged.
 
     Parameters
     ----------
@@ -229,11 +291,10 @@ def _apply_donor_splice_to_file(
         Path to the combined mono WAV (pcm_s24le) produced by ffmpeg.
     original_path:
         Path to the original stereo mix (MP3 or WAV).
+    bass_path:
+        Path to the bass (L-R) mono WAV — needed to reconstruct the ramp.
     windows:
         List of window dicts (may contain last_click, prev_click, bass_onset).
-    rampup:
-        Duck ramp-up duration (seconds) — used to reconstruct the bass duck
-        contribution in [last_click, bass_onset].  Must match build_bass_duck.
     """
     import librosa
 
@@ -247,44 +308,44 @@ def _apply_donor_splice_to_file(
     # Load original resampled to combined sr (mono)
     yo = librosa.load(str(original_path), sr=sr, mono=True)[0].astype(np.float64)
 
-    # Load bass track so we can reconstruct the ducked-bass ramp in the target span.
-    # The combined was built as: combined = ducked_bass + gated_original.
-    # In [last_click, bass_onset] the gated_original is already zero (cutoff < last_click
-    # by construction), so combined there ≈ ducked_bass (which is ~0 before the ramp).
-    # We zero the combined span and add donor; the ducked bass in [last_click, bass_onset]
-    # is present in combined but it's ~0 (duck) ramping to 1 near bass_onset.
-    # Zeroing and re-adding donor replaces the original-click bleed with the clean donor.
-    # The bass ramp already IN combined after last_click stays because we only zero
-    # up to last_click + donor_len_actual, not beyond — bass onset ramp is preserved.
-    # (If donor extends past bass_onset, only the samples up to len(combined) are touched.)
+    # Load bass resampled to combined sr (mono) — needed for even ramp reconstruction.
+    # ffmpeg hard-zeroed bass in [start, bass_onset] for click windows; we add it
+    # back with the even ramp gain in numpy.
+    yb = librosa.load(str(bass_path), sr=sr, mono=True)[0].astype(np.float64)
 
     modified = False
     for w in splice_windows:
         prev_click = float(w["prev_click"])
         last_click = float(w["last_click"])
+        bass_onset = float(w.get("bass_onset", w["end"]))
 
         donor_len_samples = int(DONOR_LEN * sr)
         fade_samples = int(FADE * sr)
 
         prev_sample = int(prev_click * sr)
         last_sample = int(last_click * sr)
+        bass_onset_sample = int(bass_onset * sr)
 
-        # Extract donor from original at prev_click onset
+        # Step 1: add even bass ramp [last_click, bass_onset] linspace(0,1)
+        combined = apply_even_bass_ramp(combined, yb, last_sample, bass_onset_sample)
+
+        # Step 2: extract donor from original at prev_click onset
         donor_end = min(prev_sample + donor_len_samples, len(yo))
         if donor_end <= prev_sample:
             continue
         donor = yo[prev_sample:donor_end].copy()
 
         if len(donor) < 2 * fade_samples:
-            # Donor too short to fade cleanly — skip
+            # Donor too short to fade cleanly — skip donor but keep the ramp
             continue
 
+        # Step 3: splice donor at last_click (additive on top of the ramp)
         combined = apply_donor_splice(combined, donor, last_sample, fade_samples)
         modified = True
 
     if modified:
         sf.write(str(out_path), combined, sr, subtype="PCM_24")
-        print(f"combine: donor splice applied -> {out_path}")
+        print(f"combine: donor splice + even bass ramp applied -> {out_path}")
 
 
 # ---------------------------------------------------------------------------
@@ -363,7 +424,8 @@ def combine_track(
     ]
     run_ffmpeg(args)
 
-    # Post-step: for windows with prev_click + last_click, splice clean donor
-    _apply_donor_splice_to_file(out, original_path, windows)
+    # Post-step: for count-in windows (prev_click + last_click), apply even bass
+    # ramp from last_click to bass_onset, then splice the clean donor click.
+    _apply_donor_splice_to_file(out, original_path, bass_path, windows)
 
     return out
