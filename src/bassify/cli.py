@@ -5,9 +5,19 @@ from typing import Annotated
 
 import typer
 
+from bassify import combine as combine_mod
 from bassify import detect as detect_mod
 from bassify import extract as extract_mod
 from bassify.slice import SliceSpec
+
+DurationOpt = Annotated[
+    float | None,
+    typer.Option("--duration", help="Process only N seconds (ffmpeg -t)."),
+]
+StartOpt = Annotated[
+    float | None,
+    typer.Option("--start", help="Start offset in seconds (ffmpeg -ss)."),
+]
 
 app = typer.Typer(help="Isolate bass from stereo practice tracks.", no_args_is_help=True)
 
@@ -29,14 +39,8 @@ def extract(
             "--no-lowpass", help="Disable the low-pass filter entirely (overrides --lowpass)."
         ),  # noqa: E501
     ] = False,
-    duration: Annotated[
-        float | None,
-        typer.Option("--duration", help="Process only N seconds (ffmpeg -t)."),
-    ] = None,
-    start: Annotated[
-        float | None,
-        typer.Option("--start", help="Start offset in seconds (ffmpeg -ss)."),
-    ] = None,
+    duration: DurationOpt = None,
+    start: StartOpt = None,
     force: Annotated[bool, typer.Option("--force", help="Overwrite existing output.")] = False,
 ) -> None:
     """L-R subtraction -> mono bass WAV."""
@@ -58,20 +62,31 @@ def detect(
         float,
         typer.Option("--min-gap", help="Minimum quiet run (s) to count as a gap."),
     ] = 1.0,
-    duration: Annotated[
-        float | None,
-        typer.Option("--duration", help="Process only N seconds (ffmpeg -t)."),
-    ] = None,
-    start: Annotated[
-        float | None,
-        typer.Option("--start", help="Start offset in seconds (ffmpeg -ss)."),
-    ] = None,
+    duration: DurationOpt = None,
+    start: StartOpt = None,
     force: Annotated[bool, typer.Option("--force", help="Overwrite existing output.")] = False,
 ) -> None:
     """Detect silence gaps in the bass -> windows JSON."""
     spec = SliceSpec(duration=duration, start=start)
     detect_mod.detect_windows(
         bass_path, output=output, threshold=threshold, min_gap=min_gap, slice_spec=spec, force=force
+    )
+
+
+@app.command()
+def combine(
+    bass_path: Path,
+    original_path: Path,
+    windows_path: Path,
+    output: Annotated[Path | None, typer.Option("-o", "--output")] = None,
+    duration: DurationOpt = None,
+    start: StartOpt = None,
+    force: Annotated[bool, typer.Option("--force", help="Overwrite existing output.")] = False,
+) -> None:
+    """Mix gated speech/count-ins onto the bass -> combined WAV."""
+    spec = SliceSpec(duration=duration, start=start)
+    combine_mod.combine_track(
+        bass_path, original_path, windows_path, output=output, slice_spec=spec, force=force
     )
 
 
