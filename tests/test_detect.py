@@ -15,21 +15,26 @@ TRAILING = """
 
 
 def test_paired_windows_padded():
-    w = parse_silences(SAMPLE, duration=60.0, pad=0.1)
+    w = parse_silences(SAMPLE, duration=60.0, pad_start=0.1, pad_end=0.1)
     assert w[0]["start"] == pytest.approx(12.184)
     assert w[0]["end"] == pytest.approx(16.013)
     assert len(w) == 2
 
 
 def test_unpaired_trailing_start_closes_at_duration():
-    w = parse_silences(TRAILING, duration=45.0, pad=0.1)
+    w = parse_silences(TRAILING, duration=45.0, pad_start=0.1, pad_end=0.1)
     assert len(w) == 1
     assert w[0]["start"] == pytest.approx(39.9)
     assert w[0]["end"] == pytest.approx(45.0)  # clamped to duration, not duration+pad
 
 
 def test_clamp_lower_bound():
-    w = parse_silences("[x] silence_start: 0.05\n[x] silence_end: 1.0\n", duration=10.0, pad=0.1)
+    w = parse_silences(
+        "[x] silence_start: 0.05\n[x] silence_end: 1.0\n",
+        duration=10.0,
+        pad_start=0.1,
+        pad_end=0.1,
+    )
     assert w[0]["start"] == 0.0
 
 
@@ -45,7 +50,7 @@ UAT_OVERLAP = """
 
 def test_merge_overlapping_windows_after_padding():
     """Two windows that overlap after ±0.1s pad should merge into one."""
-    w = parse_silences(UAT_OVERLAP, duration=140.0, pad=0.1)
+    w = parse_silences(UAT_OVERLAP, duration=140.0, pad_start=0.1, pad_end=0.1)
     assert len(w) == 1, f"expected 1 merged window, got {len(w)}: {w}"
     assert w[0]["start"] == pytest.approx(111.201088)
     assert w[0]["end"] == pytest.approx(118.721837)
@@ -61,7 +66,7 @@ NON_OVERLAPPING = """
 
 def test_non_overlapping_windows_stay_separate():
     """Windows with a clear gap after padding must remain as two distinct windows."""
-    w = parse_silences(NON_OVERLAPPING, duration=60.0, pad=0.1)
+    w = parse_silences(NON_OVERLAPPING, duration=60.0, pad_start=0.1, pad_end=0.1)
     assert len(w) == 2, f"expected 2 windows, got {len(w)}: {w}"
     assert w[0]["start"] == pytest.approx(9.9)
     assert w[0]["end"] == pytest.approx(15.1)
@@ -76,16 +81,40 @@ EXACT_SILENCE = """
 
 
 def test_pad_zero_gives_exact_detected_bounds():
-    """pad=0.0 (the default) must return the raw detected silence bounds unchanged."""
-    w = parse_silences(EXACT_SILENCE, duration=30.0, pad=0.0)
+    """pad_start=0 and pad_end=0 must return the raw detected silence bounds unchanged."""
+    w = parse_silences(EXACT_SILENCE, duration=30.0, pad_start=0.0, pad_end=0.0)
     assert len(w) == 1
     assert w[0]["start"] == pytest.approx(10.0)
     assert w[0]["end"] == pytest.approx(20.0)
 
 
-def test_negative_pad_pulls_edges_inward():
-    """pad=-0.05 must move start later by 0.05s and end earlier by 0.05s."""
-    w = parse_silences(EXACT_SILENCE, duration=30.0, pad=-0.05)
+def test_pad_end_negative_pulls_only_end_earlier():
+    """pad_end=-0.05 must move end earlier by 0.05s; start must be unchanged."""
+    w = parse_silences(EXACT_SILENCE, duration=30.0, pad_start=0.0, pad_end=-0.05)
+    assert len(w) == 1
+    assert w[0]["start"] == pytest.approx(10.0)
+    assert w[0]["end"] == pytest.approx(19.95)
+
+
+def test_pad_start_negative_pulls_only_start_later():
+    """pad_start=-0.05 must move start later by 0.05s; end must be unchanged."""
+    w = parse_silences(EXACT_SILENCE, duration=30.0, pad_start=-0.05, pad_end=0.0)
     assert len(w) == 1
     assert w[0]["start"] == pytest.approx(10.05)
+    assert w[0]["end"] == pytest.approx(20.0)
+
+
+def test_degenerate_window_dropped_after_aggressive_pad_end():
+    """A very short window where pad_end makes end <= start must be dropped entirely."""
+    # Raw silence 10.0..10.03; pad_end=-0.05 → end = 10.03 - 0.05 = 9.98 < start=10.0 → drop.
+    short_silence = "[x] silence_start: 10.0\n[x] silence_end: 10.03\n"
+    w = parse_silences(short_silence, duration=30.0, pad_start=0.0, pad_end=-0.05)
+    assert w == [], f"expected empty list (degenerate window dropped), got {w}"
+
+
+def test_default_params_apply_pad_end_negative():
+    """Default pad_start=0.0, pad_end=-0.05 must shift only end earlier."""
+    w = parse_silences(EXACT_SILENCE, duration=30.0)
+    assert len(w) == 1
+    assert w[0]["start"] == pytest.approx(10.0)
     assert w[0]["end"] == pytest.approx(19.95)

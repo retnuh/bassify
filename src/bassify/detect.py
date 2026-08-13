@@ -12,10 +12,21 @@ _START = re.compile(r"silence_start:\s*([0-9.]+)")
 _END = re.compile(r"silence_end:\s*([0-9.]+)")
 
 
-def parse_silences(stderr: str, duration: float, pad: float = 0.0) -> list[dict[str, float]]:
+def parse_silences(
+    stderr: str,
+    duration: float,
+    pad_start: float = 0.0,
+    pad_end: float = -0.05,
+) -> list[dict[str, float]]:
     """Pair silence_start/end lines into padded, clamped windows.
 
     An unpaired trailing silence_start is closed at `duration`.
+
+    pad_start: seconds subtracted from the raw silence_start (positive expands outward,
+               negative pulls the gate start later into the silence).
+    pad_end:   seconds added to the raw silence_end (positive expands outward,
+               negative pulls the gate end earlier, before bass onset).
+    Windows that become zero-length or inverted after padding are dropped.
     """
     windows: list[dict[str, float]] = []
     pending: float | None = None
@@ -33,8 +44,10 @@ def parse_silences(stderr: str, duration: float, pad: float = 0.0) -> list[dict[
 
     clamped: list[dict[str, float]] = []
     for w in windows:
-        start = max(0.0, w["start"] - pad)
-        end = min(duration, w["end"] + pad)
+        start = max(0.0, w["start"] - pad_start)
+        end = min(duration, w["end"] + pad_end)
+        if start >= end:
+            continue  # degenerate window — drop it
         clamped.append({"start": start, "end": end})
 
     # Merge overlapping or touching windows (can occur after padding).
@@ -57,7 +70,8 @@ def detect_windows(
     output: Path | None = None,
     threshold: float = -40.0,
     min_gap: float = 1.0,
-    pad: float = 0.0,
+    pad_start: float = 0.0,
+    pad_end: float = -0.05,
     slice_spec: SliceSpec | None = None,
     cut_inputs: bool = True,
     force: bool = False,
@@ -93,7 +107,7 @@ def detect_windows(
     ]
     stderr = run_ffmpeg_capture(args)
     duration = ffprobe_duration(bass_path)
-    windows = parse_silences(stderr, duration=duration, pad=pad)
+    windows = parse_silences(stderr, duration=duration, pad_start=pad_start, pad_end=pad_end)
     out.write_text(json.dumps(windows, indent=2))
     print(f"wrote {len(windows)} windows -> {out}")
     return out

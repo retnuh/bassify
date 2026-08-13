@@ -62,16 +62,20 @@ def detect(
         float,
         typer.Option("--min-gap", help="Minimum quiet run (s) to count as a gap."),
     ] = 1.0,
-    pad: Annotated[
+    pad_start: Annotated[
         float,
         typer.Option(
-            "--pad",
-            help=(
-                "Gate edge padding in seconds; 0 = exact detected silence, "
-                "NEGATIVE pulls edges inward to avoid leaking the band at bass onset/offset."
-            ),
+            "--pad-start",
+            help="Seconds to pad the gate START; negative pulls it later into the silence.",
         ),
     ] = 0.0,
+    pad_end: Annotated[
+        float,
+        typer.Option(
+            "--pad-end",
+            help="Seconds to pad the gate END; negative pulls it earlier, before bass onset, to avoid leaking the downbeat.",  # noqa: E501
+        ),
+    ] = -0.05,
     duration: DurationOpt = None,
     start: StartOpt = None,
     force: Annotated[bool, typer.Option("--force", help="Overwrite existing output.")] = False,
@@ -83,7 +87,8 @@ def detect(
         output=output,
         threshold=threshold,
         min_gap=min_gap,
-        pad=pad,
+        pad_start=pad_start,
+        pad_end=pad_end,
         slice_spec=spec,
         force=force,
     )
