@@ -62,6 +62,16 @@ def detect(
         float,
         typer.Option("--min-gap", help="Minimum quiet run (s) to count as a gap."),
     ] = 1.0,
+    pad: Annotated[
+        float,
+        typer.Option(
+            "--pad",
+            help=(
+                "Gate edge padding in seconds; 0 = exact detected silence, "
+                "NEGATIVE pulls edges inward to avoid leaking the band at bass onset/offset."
+            ),
+        ),
+    ] = 0.0,
     duration: DurationOpt = None,
     start: StartOpt = None,
     force: Annotated[bool, typer.Option("--force", help="Overwrite existing output.")] = False,
@@ -69,7 +79,13 @@ def detect(
     """Detect silence gaps in the bass -> windows JSON."""
     spec = SliceSpec(duration=duration, start=start)
     detect_mod.detect_windows(
-        bass_path, output=output, threshold=threshold, min_gap=min_gap, slice_spec=spec, force=force
+        bass_path,
+        output=output,
+        threshold=threshold,
+        min_gap=min_gap,
+        pad=pad,
+        slice_spec=spec,
+        force=force,
     )
 
 

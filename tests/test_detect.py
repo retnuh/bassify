@@ -67,3 +67,25 @@ def test_non_overlapping_windows_stay_separate():
     assert w[0]["end"] == pytest.approx(15.1)
     assert w[1]["start"] == pytest.approx(19.9)
     assert w[1]["end"] == pytest.approx(25.1)
+
+
+EXACT_SILENCE = """
+[silencedetect @ 0x1] silence_start: 10.0
+[silencedetect @ 0x1] silence_end: 20.0 | silence_duration: 10.0
+"""
+
+
+def test_pad_zero_gives_exact_detected_bounds():
+    """pad=0.0 (the default) must return the raw detected silence bounds unchanged."""
+    w = parse_silences(EXACT_SILENCE, duration=30.0, pad=0.0)
+    assert len(w) == 1
+    assert w[0]["start"] == pytest.approx(10.0)
+    assert w[0]["end"] == pytest.approx(20.0)
+
+
+def test_negative_pad_pulls_edges_inward():
+    """pad=-0.05 must move start later by 0.05s and end earlier by 0.05s."""
+    w = parse_silences(EXACT_SILENCE, duration=30.0, pad=-0.05)
+    assert len(w) == 1
+    assert w[0]["start"] == pytest.approx(10.05)
+    assert w[0]["end"] == pytest.approx(19.95)

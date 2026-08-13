@@ -12,7 +12,7 @@ _START = re.compile(r"silence_start:\s*([0-9.]+)")
 _END = re.compile(r"silence_end:\s*([0-9.]+)")
 
 
-def parse_silences(stderr: str, duration: float, pad: float = 0.1) -> list[dict[str, float]]:
+def parse_silences(stderr: str, duration: float, pad: float = 0.0) -> list[dict[str, float]]:
     """Pair silence_start/end lines into padded, clamped windows.
 
     An unpaired trailing silence_start is closed at `duration`.
@@ -57,6 +57,7 @@ def detect_windows(
     output: Path | None = None,
     threshold: float = -40.0,
     min_gap: float = 1.0,
+    pad: float = 0.0,
     slice_spec: SliceSpec | None = None,
     cut_inputs: bool = True,
     force: bool = False,
@@ -92,7 +93,7 @@ def detect_windows(
     ]
     stderr = run_ffmpeg_capture(args)
     duration = ffprobe_duration(bass_path)
-    windows = parse_silences(stderr, duration=duration)
+    windows = parse_silences(stderr, duration=duration, pad=pad)
     out.write_text(json.dumps(windows, indent=2))
     print(f"wrote {len(windows)} windows -> {out}")
     return out
