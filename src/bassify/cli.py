@@ -83,6 +83,13 @@ def detect(
             help="Merge windows separated by less than this many seconds of sound (removes gaps split by brief noise-floor blips).",  # noqa: E501
         ),
     ] = 0.5,
+    count_in_original: Annotated[
+        Path | None,
+        typer.Option(
+            "--count-in-original",
+            help="Original mix; when given, refine each window end to sit just after the count-in, before the downbeat.",  # noqa: E501
+        ),
+    ] = None,
     duration: DurationOpt = None,
     start: StartOpt = None,
     force: Annotated[bool, typer.Option("--force", help="Overwrite existing output.")] = False,
@@ -99,6 +106,7 @@ def detect(
         min_riff=min_riff,
         slice_spec=spec,
         force=force,
+        original_path=count_in_original,
     )
 
 

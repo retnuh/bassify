@@ -4,6 +4,7 @@ import json
 import re
 from pathlib import Path
 
+from bassify.countin import refine_window_end
 from bassify.ffmpeg import ffprobe_duration, run_ffmpeg_capture, should_skip
 from bassify.paths import resolve_paths
 from bassify.slice import SliceSpec
@@ -91,11 +92,16 @@ def detect_windows(
     slice_spec: SliceSpec | None = None,
     cut_inputs: bool = True,
     force: bool = False,
+    original_path: Path | None = None,
 ) -> Path:
     """Run silencedetect on the bass track, write windows JSON. Returns output path.
 
     `original_for_naming` lets `run` place the JSON in the track dir keyed off the
     original input name; when None the bass_path stem is used for naming.
+
+    `original_path` enables count-in click cutoff refinement: each window's end
+    is refined to sit just after the last count-in click, before the downbeat.
+    When None (default), behaviour is unchanged.
     """
     spec = slice_spec or SliceSpec()
     if output is not None:
@@ -126,6 +132,15 @@ def detect_windows(
     windows = parse_silences(
         stderr, duration=duration, pad_start=pad_start, pad_end=pad_end, min_riff=min_riff
     )
+
+    # Optionally refine each window's end via count-in click cutoff detection.
+    if original_path is not None:
+        refined: list[dict[str, float]] = []
+        for w in windows:
+            new_end = refine_window_end(bass_path, original_path, w["start"], w["end"])
+            refined.append({"start": w["start"], "end": new_end})
+        windows = refined
+
     out.write_text(json.dumps(windows, indent=2))
     print(f"wrote {len(windows)} windows -> {out}")
     return out
