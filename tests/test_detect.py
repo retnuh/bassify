@@ -118,3 +118,65 @@ def test_default_params_apply_pad_end_negative():
     assert len(w) == 1
     assert w[0]["start"] == pytest.approx(10.0)
     assert w[0]["end"] == pytest.approx(19.95)
+
+
+# ---------------------------------------------------------------------------
+# min_riff merge tests
+# ---------------------------------------------------------------------------
+
+MIN_RIFF_CLOSE = """
+[silencedetect @ 0x1] silence_start: 10.0
+[silencedetect @ 0x1] silence_end: 12.0 | silence_duration: 2.0
+[silencedetect @ 0x1] silence_start: 12.05
+[silencedetect @ 0x1] silence_end: 14.0 | silence_duration: 1.95
+"""
+
+
+def test_min_riff_merges_windows_with_tiny_gap():
+    """Two windows 0.05s apart (< default 0.5s min_riff) must merge into one."""
+    w = parse_silences(MIN_RIFF_CLOSE, duration=30.0, pad_start=0.0, pad_end=0.0)
+    assert len(w) == 1, f"expected 1 merged window, got {len(w)}: {w}"
+    assert w[0]["start"] == pytest.approx(10.0)
+    assert w[0]["end"] == pytest.approx(14.0)
+
+
+MIN_RIFF_FAR = """
+[silencedetect @ 0x1] silence_start: 10.0
+[silencedetect @ 0x1] silence_end: 12.0 | silence_duration: 2.0
+[silencedetect @ 0x1] silence_start: 17.0
+[silencedetect @ 0x1] silence_end: 20.0 | silence_duration: 3.0
+"""
+
+
+def test_min_riff_keeps_windows_with_large_gap():
+    """Two windows 5s apart (> default 0.5s min_riff) must stay separate."""
+    w = parse_silences(MIN_RIFF_FAR, duration=30.0, pad_start=0.0, pad_end=0.0)
+    assert len(w) == 2, f"expected 2 windows, got {len(w)}: {w}"
+    assert w[0]["start"] == pytest.approx(10.0)
+    assert w[0]["end"] == pytest.approx(12.0)
+    assert w[1]["start"] == pytest.approx(17.0)
+    assert w[1]["end"] == pytest.approx(20.0)
+
+
+MIN_RIFF_CASCADE = """
+[silencedetect @ 0x1] silence_start: 5.0
+[silencedetect @ 0x1] silence_end: 7.0 | silence_duration: 2.0
+[silencedetect @ 0x1] silence_start: 7.2
+[silencedetect @ 0x1] silence_end: 9.0 | silence_duration: 1.8
+[silencedetect @ 0x1] silence_start: 9.3
+[silencedetect @ 0x1] silence_end: 11.0 | silence_duration: 1.7
+"""
+
+
+def test_min_riff_cascade_merges_three_windows():
+    """Three windows each < 0.5s apart must cascade-merge into a single window."""
+    w = parse_silences(MIN_RIFF_CASCADE, duration=30.0, pad_start=0.0, pad_end=0.0)
+    assert len(w) == 1, f"expected 1 merged window, got {len(w)}: {w}"
+    assert w[0]["start"] == pytest.approx(5.0)
+    assert w[0]["end"] == pytest.approx(11.0)
+
+
+def test_min_riff_zero_disables_merge():
+    """min_riff=0 must disable the merge: close windows stay separate."""
+    w = parse_silences(MIN_RIFF_CLOSE, duration=30.0, pad_start=0.0, pad_end=0.0, min_riff=0)
+    assert len(w) == 2, f"expected 2 windows with min_riff=0, got {len(w)}: {w}"

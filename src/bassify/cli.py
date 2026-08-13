@@ -76,6 +76,13 @@ def detect(
             help="Seconds to pad the gate END; negative pulls it earlier, before bass onset, to avoid leaking the downbeat.",  # noqa: E501
         ),
     ] = -0.05,
+    min_riff: Annotated[
+        float,
+        typer.Option(
+            "--min-riff",
+            help="Merge windows separated by less than this many seconds of sound (removes gaps split by brief noise-floor blips).",  # noqa: E501
+        ),
+    ] = 0.5,
     duration: DurationOpt = None,
     start: StartOpt = None,
     force: Annotated[bool, typer.Option("--force", help="Overwrite existing output.")] = False,
@@ -89,6 +96,7 @@ def detect(
         min_gap=min_gap,
         pad_start=pad_start,
         pad_end=pad_end,
+        min_riff=min_riff,
         slice_spec=spec,
         force=force,
     )
