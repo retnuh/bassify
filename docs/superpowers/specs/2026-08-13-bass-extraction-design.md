@@ -102,13 +102,16 @@ bassify/
 
 ## 4. CLI (Typer)
 
+Every command accepts `--duration` / `--start` (see below); omitted here for
+brevity except on the entries where it matters most:
+
 ```
-bassify extract  <in.mp3>   [-o PATH] [--lowpass HZ] [--force]
-bassify detect   <bass.wav>  [-o PATH] [--threshold -40] [--min-gap 1.0] [--force]
-bassify combine  <bass.wav> <original.mp3> <windows.json> [-o PATH] [--force]
-bassify remix    <combined.wav> <original.mp3> [-o PATH] [--force]
-bassify encode   <audio.wav> <original.mp3> [-o PATH] [--force]
-bassify run      <in.mp3>   [--lowpass HZ] [--threshold -40] [--min-gap 1.0] [--force]
+bassify extract  <in.mp3>   [-o PATH] [--lowpass HZ] [--duration S] [--start S] [--force]
+bassify detect   <bass.wav>  [-o PATH] [--threshold -40] [--min-gap 1.0] [--duration S] [--start S] [--force]
+bassify combine  <bass.wav> <original.mp3> <windows.json> [-o PATH] [--duration S] [--start S] [--force]
+bassify remix    <combined.wav> <original.mp3> [-o PATH] [--duration S] [--start S] [--force]
+bassify encode   <audio.wav> <original.mp3> [-o PATH] [--duration S] [--start S] [--force]
+bassify run      <in.mp3>   [--lowpass HZ] [--threshold -40] [--min-gap 1.0] [--duration S] [--start S] [--force]
 ```
 
 - Typer chosen over argparse: subcommands map to typed functions, clean `--help`,
@@ -123,16 +126,48 @@ bassify run      <in.mp3>   [--lowpass HZ] [--threshold -40] [--min-gap 1.0] [--
   layout below.
 - Every ffmpeg command is printed before execution.
 
+### Test-slice flags: `--duration` / `--start`
+
+For fast iteration on slow stages (brief §5 calls for a short `-t 15` test slice
+before full passes), every command takes:
+
+- `--duration SECONDS` → process only this many seconds (ffmpeg `-t`). Default:
+  whole track.
+- `--start SECONDS` → begin at this offset (ffmpeg `-ss`). Default: 0. Lets you
+  test a mid-track riff, not just the intro.
+
+Applied **uniformly to all inputs** of a command, so `combine` / `remix` inputs
+stay length-matched and the duration guard doesn't trip. On `run`, the slice is
+taken once on the source input and every downstream WAV is already short —
+the flags propagate naturally.
+
+**Slice params are encoded into output filenames** so sliced test artifacts never
+clobber full-track outputs and skip-if-exists works per-variant. Suffix rules
+(inserted after the artifact type, before the extension):
+
+| Flags | Suffix | Example |
+|---|---|---|
+| neither | *(none)* | `<track>_bass.wav` |
+| `--duration 15` | `_d15s` | `<track>_bass_d15s.wav` |
+| `--start 30` | `_s30s` | `<track>_bass_s30s.wav` |
+| both | `_d15s_s30s` | `<track>_bass_d15s_s30s.wav` |
+
+Applies to every artifact (`_combined_d15s.wav`, `_silence_windows_d15s.json`,
+`_remix_d15s_s30s.m4a`, …).
+
 ## 5. Output-path layout
 
-Path resolution is centralized in one `resolve_paths(input_path, out_root="out")`
-helper used by every stage — no ad-hoc path building.
+Path resolution is centralized in one
+`resolve_paths(input_path, out_root="out", slice_spec=None)` helper used by every
+stage — no ad-hoc path building. `slice_spec` carries the optional
+`--duration`/`--start` values and produces the filename suffix (see §4).
 
 - **Collection dir** = the immediate parent directory name of the input file.
 - **Per-track subdir** = the track basename (extension stripped).
 - **Artifact names** = `<track>_bass.wav`, `<track>_silence_windows.json`,
   `<track>_combined.wav`, `<track>_remix.wav`, `<track>_combined.m4a`,
-  `<track>_remix.m4a`.
+  `<track>_remix.m4a` — each gaining the slice suffix (`_d15s`, `_s30s`,
+  `_d15s_s30s`) when `--duration`/`--start` are set.
 
 Example — input `tracks/BluesBass/01_The Twelve Bar Blues Form.mp3`:
 
@@ -250,7 +285,8 @@ WAV) on disk for inspection and hand-correction alongside the final `.m4a` files
   - window pairing, including the unpaired trailing-start case.
   - gate-string builder.
   - remix pan/channel-map string builder.
-  - `resolve_paths()` collection/track/artifact derivation.
+  - `resolve_paths()` collection/track/artifact derivation, including the
+    slice-suffix (`_d15s`, `_s30s`, `_d15s_s30s`, none) from a `slice_spec`.
 - **Integration test** (marked, skipped when ffmpeg is absent): generate a tiny
   synthetic stereo WAV in-test → run `extract` → assert the bass channel is the
   L−R difference. Keeps CI honest without committing large audio files.
