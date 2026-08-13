@@ -34,3 +34,7 @@ encode *ARGS:
 
 run *ARGS:
     uv run bassify run {{ARGS}}
+
+# Delete all intermediate .wav files under out/, leaving .m4a and .json untouched
+clean-intermediates:
+    find out -type f -name '*.wav' -delete 2>/dev/null || true
