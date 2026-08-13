@@ -16,9 +16,18 @@ def extract(
     input_path: Path,
     output: Annotated[Path | None, typer.Option("-o", "--output")] = None,
     lowpass: Annotated[
-        float | None,
-        typer.Option("--lowpass", help="Low-pass cutoff Hz to tame subtraction residue."),
-    ] = None,
+        float,
+        typer.Option(
+            "--lowpass",
+            help="Low-pass cutoff Hz to tame subtraction residue (default: 800). Use --no-lowpass to disable.",  # noqa: E501
+        ),
+    ] = extract_mod.DEFAULT_LOWPASS,
+    no_lowpass: Annotated[
+        bool,
+        typer.Option(
+            "--no-lowpass", help="Disable the low-pass filter entirely (overrides --lowpass)."
+        ),  # noqa: E501
+    ] = False,
     duration: Annotated[
         float | None,
         typer.Option("--duration", help="Process only N seconds (ffmpeg -t)."),
@@ -31,8 +40,9 @@ def extract(
 ) -> None:
     """L-R subtraction -> mono bass WAV."""
     spec = SliceSpec(duration=duration, start=start)
+    effective_lowpass = None if no_lowpass else lowpass
     extract_mod.extract_bass(
-        input_path, output=output, lowpass=lowpass, slice_spec=spec, force=force
+        input_path, output=output, lowpass=effective_lowpass, slice_spec=spec, force=force
     )
 
 

@@ -6,6 +6,8 @@ from bassify.ffmpeg import run_ffmpeg, should_skip
 from bassify.paths import resolve_paths
 from bassify.slice import SliceSpec
 
+DEFAULT_LOWPASS = 800.0
+
 
 def build_filter(lowpass: float | None) -> str:
     f = "pan=mono|c0=c0-c1"
@@ -17,7 +19,7 @@ def build_filter(lowpass: float | None) -> str:
 def extract_bass(
     input_path: Path,
     output: Path | None = None,
-    lowpass: float | None = None,
+    lowpass: float | None = DEFAULT_LOWPASS,
     slice_spec: SliceSpec | None = None,
     cut_inputs: bool = True,
     force: bool = False,
