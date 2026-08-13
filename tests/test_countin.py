@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from bassify.countin import find_guitar_cutoff, match_onsets
+from bassify.countin import find_guitar_cutoff, match_onsets, pick_last_prev
 
 # ---------------------------------------------------------------------------
 # match_onsets
@@ -229,3 +229,39 @@ class TestFindGuitarCutoff:
         # cutoff = 3.2 - 0.005 = 3.195
         cutoff = find_guitar_cutoff(bass, orig, window_start=0.0, window_end=5.0)
         assert cutoff == pytest.approx(3.2 - 0.005)
+
+
+# ---------------------------------------------------------------------------
+# pick_last_prev
+# ---------------------------------------------------------------------------
+
+
+class TestPickLastPrev:
+    def test_two_or_more_matched(self):
+        matched = [1.0, 2.0, 3.0]
+        last, prev = pick_last_prev(matched)
+        assert last == pytest.approx(3.0)
+        assert prev == pytest.approx(2.0)
+
+    def test_exactly_two_matched(self):
+        matched = [5.561, 6.211]
+        last, prev = pick_last_prev(matched)
+        assert last == pytest.approx(6.211)
+        assert prev == pytest.approx(5.561)
+
+    def test_one_matched_prev_is_none(self):
+        matched = [3.5]
+        last, prev = pick_last_prev(matched)
+        assert last == pytest.approx(3.5)
+        assert prev is None
+
+    def test_empty_matched_both_none(self):
+        last, prev = pick_last_prev([])
+        assert last is None
+        assert prev is None
+
+    def test_many_clicks_takes_last_two(self):
+        matched = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+        last, prev = pick_last_prev(matched)
+        assert last == pytest.approx(6.0)
+        assert prev == pytest.approx(5.0)

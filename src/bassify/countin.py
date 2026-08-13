@@ -23,6 +23,28 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 
 
+def pick_last_prev(
+    matched: list[float],
+) -> tuple[float | None, float | None]:
+    """Return (last_click, prev_click) from a matched onset list.
+
+    Parameters
+    ----------
+    matched:
+        List of matched (click) onset times in order.
+
+    Returns
+    -------
+    (last_click, prev_click): last_click is matched[-1], prev_click is matched[-2].
+    Both are None when the list is empty; prev_click is None when len < 2.
+    """
+    if len(matched) >= 2:
+        return matched[-1], matched[-2]
+    if len(matched) == 1:
+        return matched[-1], None
+    return None, None
+
+
 def match_onsets(
     bass_onsets: list[float],
     orig_onsets: list[float],
@@ -194,8 +216,40 @@ def refine_window(
     -------
     Cutoff timestamp in seconds.
     """
+    return refine_window_full(bass_path, original_path, window_start, window_end)["cutoff"]
+
+
+def refine_window_full(
+    bass_path: Path,
+    original_path: Path,
+    window_start: float,
+    window_end: float,
+) -> dict:
+    """Return cutoff and last two click onsets for a window.
+
+    Like refine_window but also returns the last two matched (click) onsets
+    so that combine can perform the donor-splice swap.
+
+    Parameters
+    ----------
+    bass_path:
+        Path to the bass (L-R) audio file.
+    original_path:
+        Path to the original stereo mix.
+    window_start:
+        Start of the silence window (s).
+    window_end:
+        End of the silence window / detected music onset (s).
+
+    Returns
+    -------
+    Dict with keys:
+      "cutoff"     — refined cutoff in seconds
+      "last_click" — last matched click onset (float) or None
+      "prev_click" — second-to-last matched click onset (float) or None
+    """
     if window_end <= window_start:
-        return window_end
+        return {"cutoff": window_end, "last_click": None, "prev_click": None}
 
     yb, sr_b = _load_cached(bass_path)
     yo, sr_o = _load_cached(original_path)
@@ -206,12 +260,17 @@ def refine_window(
     raw_orig = _onsets_in_window(yo, sr_o, window_start, window_end)
     orig_onsets = [t for t in raw_orig if t < window_end - 0.02]
 
-    return find_guitar_cutoff(
+    matched, _ = match_onsets(bass_onsets, orig_onsets)
+    last_click, prev_click = pick_last_prev(matched)
+
+    cutoff = find_guitar_cutoff(
         bass_onsets,
         orig_onsets,
         window_start,
         window_end,
     )
+
+    return {"cutoff": cutoff, "last_click": last_click, "prev_click": prev_click}
 
 
 # ---------------------------------------------------------------------------

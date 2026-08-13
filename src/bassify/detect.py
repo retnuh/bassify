@@ -4,7 +4,7 @@ import json
 import re
 from pathlib import Path
 
-from bassify.countin import refine_window
+from bassify.countin import refine_window_full
 from bassify.ffmpeg import ffprobe_duration, run_ffmpeg_capture, should_skip
 from bassify.paths import resolve_paths
 from bassify.slice import SliceSpec
@@ -138,11 +138,19 @@ def detect_windows(
     #   "end"        = the guitar-onset cutoff (gate closes here)
     #   "bass_onset" = the original silence-end / true music onset (duck ramp target)
     if original_path is not None:
-        refined: list[dict[str, float]] = []
+        refined: list[dict] = []
         for w in windows:
             bass_onset = w["end"]  # raw silence end = true music onset
-            cutoff = refine_window(bass_path, original_path, w["start"], bass_onset)
-            refined.append({"start": w["start"], "end": cutoff, "bass_onset": bass_onset})
+            info = refine_window_full(bass_path, original_path, w["start"], bass_onset)
+            entry: dict = {
+                "start": w["start"],
+                "end": info["cutoff"],
+                "bass_onset": bass_onset,
+            }
+            if info["last_click"] is not None and info["prev_click"] is not None:
+                entry["last_click"] = info["last_click"]
+                entry["prev_click"] = info["prev_click"]
+            refined.append(entry)
         windows = refined
 
     out.write_text(json.dumps(windows, indent=2))

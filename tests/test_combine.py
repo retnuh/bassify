@@ -5,7 +5,16 @@ No ffmpeg is invoked; only the expression-builder functions are tested.
 
 from __future__ import annotations
 
-from bassify.combine import build_bass_duck, build_filtergraph, build_gate, build_original_gate
+import numpy as np
+import pytest
+
+from bassify.combine import (
+    apply_donor_splice,
+    build_bass_duck,
+    build_filtergraph,
+    build_gate,
+    build_original_gate,
+)
 
 # ---------------------------------------------------------------------------
 # build_original_gate
@@ -164,3 +173,76 @@ class TestBuildGateLegacy:
 
     def test_empty_list_returns_zero(self):
         assert build_gate([]) == "0"
+
+
+# ---------------------------------------------------------------------------
+# apply_donor_splice (pure numpy helper)
+# ---------------------------------------------------------------------------
+
+
+def _ramp(n: int) -> np.ndarray:
+    """1-D float64 ramp from 0..1 over n samples."""
+    return np.linspace(0.0, 1.0, n)
+
+
+class TestApplyDonorSplice:
+    def test_region_before_last_click_untouched(self):
+        """Samples before last_click_sample must not be altered."""
+        combined = np.ones(1000, dtype=np.float64)
+        donor = np.ones(100, dtype=np.float64)
+        result = apply_donor_splice(combined, donor, last_click_sample=500, fade_samples=10)
+        np.testing.assert_array_equal(result[:500], combined[:500])
+
+    def test_donor_placed_at_last_click_offset(self):
+        """Donor peak lands at last_click_sample (after fade-in)."""
+        combined = np.zeros(1000, dtype=np.float64)
+        # Flat donor of value 2.0
+        donor = np.full(100, 2.0, dtype=np.float64)
+        fade = 5
+        result = apply_donor_splice(combined, donor, last_click_sample=200, fade_samples=fade)
+        # Middle of donor (after fade-in, before fade-out) should be 2.0
+        mid = 200 + fade + (100 - 2 * fade) // 2
+        assert result[mid] == pytest.approx(2.0)
+
+    def test_donor_starts_with_fade_in(self):
+        """First sample of donor region should start near 0 (fade-in applied)."""
+        combined = np.zeros(1000, dtype=np.float64)
+        donor = np.ones(200, dtype=np.float64)
+        fade = 20
+        result = apply_donor_splice(combined, donor, last_click_sample=100, fade_samples=fade)
+        # First sample of donor = 1.0 * linspace(0,1,20)[0] = 0.0
+        assert result[100] == pytest.approx(0.0)
+
+    def test_donor_ends_with_fade_out(self):
+        """Last sample of donor region should be near 0 (fade-out applied)."""
+        combined = np.zeros(1000, dtype=np.float64)
+        donor = np.ones(200, dtype=np.float64)
+        fade = 20
+        result = apply_donor_splice(combined, donor, last_click_sample=100, fade_samples=fade)
+        # Last sample of donor: 1.0 * linspace(1,0,20)[-1] = 0.0
+        assert result[100 + 200 - 1] == pytest.approx(0.0)
+
+    def test_region_after_donor_untouched(self):
+        """Samples after donor end must not be altered."""
+        combined = np.full(1000, 5.0, dtype=np.float64)
+        donor = np.zeros(100, dtype=np.float64)
+        last = 200
+        result = apply_donor_splice(combined, donor, last_click_sample=last, fade_samples=10)
+        # After donor: samples [300, 1000) should still be 5.0
+        np.testing.assert_array_equal(result[last + len(donor) :], combined[last + len(donor) :])
+
+    def test_combined_not_mutated(self):
+        """Input combined array must not be modified in place."""
+        combined = np.ones(500, dtype=np.float64)
+        original_copy = combined.copy()
+        donor = np.ones(50, dtype=np.float64)
+        apply_donor_splice(combined, donor, last_click_sample=100, fade_samples=5)
+        np.testing.assert_array_equal(combined, original_copy)
+
+    def test_donor_clipped_at_array_end(self):
+        """Donor extending past combined end is silently clipped."""
+        combined = np.zeros(150, dtype=np.float64)
+        donor = np.ones(100, dtype=np.float64)
+        # last_click_sample=100, donor=100 -> would end at 200, array only 150 long
+        result = apply_donor_splice(combined, donor, last_click_sample=100, fade_samples=5)
+        assert len(result) == 150  # length preserved
