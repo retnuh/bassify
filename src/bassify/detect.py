@@ -36,7 +36,19 @@ def parse_silences(stderr: str, duration: float, pad: float = 0.1) -> list[dict[
         start = max(0.0, w["start"] - pad)
         end = min(duration, w["end"] + pad)
         clamped.append({"start": start, "end": end})
-    return clamped
+
+    # Merge overlapping or touching windows (can occur after padding).
+    if not clamped:
+        return []
+    merged: list[dict[str, float]] = [clamped[0]]
+    for nxt in clamped[1:]:
+        cur = merged[-1]
+        if nxt["start"] <= cur["end"]:
+            # Overlapping or touching — extend current window if needed.
+            merged[-1] = {"start": cur["start"], "end": max(cur["end"], nxt["end"])}
+        else:
+            merged.append(nxt)
+    return merged
 
 
 def detect_windows(
