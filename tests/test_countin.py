@@ -174,6 +174,23 @@ class TestIsCountin:
     def test_single_onset(self):
         assert is_countin([10.0]) is False
 
+    def test_rejects_multi_second_gap(self):
+        # 3.39s void between 4th and 5th onset: [1.5, 2.9, 4.3, 5.0, 8.39]
+        # gaps: 1.4, 1.4, 0.7, 3.39 — last exceeds max_gap=2.0 → False
+        onsets = [1.5, 2.9, 4.3, 5.0, 8.39]
+        assert is_countin(onsets) is False
+
+    def test_normal_countin_passes(self):
+        # gaps: 1.4, 1.4, 0.65, 0.65, 0.65 — all within [0.30, 2.0] → True
+        onsets = [1.5, 2.9, 4.3, 4.95, 5.6, 6.25]
+        assert is_countin(onsets) is True
+
+    def test_custom_max_gap(self):
+        # gap of 1.8s passes with default max_gap=2.0 but fails with max_gap=1.5
+        onsets = [1.0, 2.0, 3.0, 3.5, 5.3]  # last gap 1.8s
+        assert is_countin(onsets, max_gap=2.0) is True
+        assert is_countin(onsets, max_gap=1.5) is False
+
 
 # ---------------------------------------------------------------------------
 # project_cutoff

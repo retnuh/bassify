@@ -92,16 +92,21 @@ def filter_onsets(
     return filtered
 
 
-def is_countin(onsets: list[float], min_clicks: int = 5) -> bool:
+def is_countin(onsets: list[float], min_clicks: int = 5, max_gap: float = 2.0) -> bool:
     """Return True when ``onsets`` looks like a valid count-in.
 
     Requires at least ``min_clicks`` clicks whose inter-onset gaps are all
-    >= 0.30 s (after :func:`filter_onsets` has removed trailing bleed).
+    >= 0.30 s and <= ``max_gap`` s (after :func:`filter_onsets` has removed
+    trailing bleed). A gap wider than ``max_gap`` (e.g. a multi-second void)
+    indicates a noisy window rather than a real count-in.
     """
     if len(onsets) < min_clicks:
         return False
     for i in range(1, len(onsets)):
-        if onsets[i] - onsets[i - 1] < 0.30:
+        gap = onsets[i] - onsets[i - 1]
+        if gap < 0.30:
+            return False
+        if gap > max_gap:
             return False
     return True
 
@@ -249,7 +254,7 @@ def refine_window_end(
     original_path: Path,
     window_start: float,
     window_end: float,
-    margin_db: float = 12.0,
+    margin_db: float = 16.0,
 ) -> float:
     """Return a refined window end sitting just after the count-in, before the downbeat.
 
