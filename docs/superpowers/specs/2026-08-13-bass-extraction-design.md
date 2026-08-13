@@ -5,8 +5,8 @@ the bass line from practice tracks recorded in a specific stereo format and
 recombines spoken announcements / count-ins onto the bass.
 
 Source brief: [`docs/bass-extraction-pipeline.md`](../../bass-extraction-pipeline.md).
-This spec covers **V1 = audio only** (`extract`, `detect`, `combine`). The video
-`render` stage (CQT + waveform) is deferred to a later phase.
+This spec covers **V1 = audio only** (`extract`, `detect`, `combine`, `encode`).
+The video `render` stage (CQT + waveform) is deferred to a later phase.
 
 ---
 
@@ -16,8 +16,11 @@ This spec covers **V1 = audio only** (`extract`, `detect`, `combine`). The video
 - `extract` — isolate bass via L−R channel subtraction.
 - `detect` — find silence gaps in the bass, emit JSON windows.
 - `combine` — gate the original mix during those windows, mix onto the bass.
-- `run` — chain the three stages, leaving inspectable intermediates on disk.
+- `encode` — compress the combined WAV to a shareable AAC/`.m4a`, carrying the
+  original MP3's metadata and cover art forward.
+- `run` — chain all four stages, leaving inspectable intermediates on disk.
 - Smart, reusable output-path layout mirroring the input collection.
+- Interactive UAT checkpoints while developing each stage (see §8).
 - Modern Python tooling: uv, ruff, pre-commit, justfile, GitHub CI.
 
 **Out of scope (deferred):**
@@ -38,9 +41,12 @@ independently, so subtraction leaves a faint high-frequency ghost. Acceptable fo
 learning a bass line; the optional `--lowpass` mitigates if distracting. Test the
 plain (unfiltered) version first.
 
-**Gotcha:** these MP3s carry embedded cover art (an mjpeg stream). Every ffmpeg
-invocation must strip video (`-vn`) or map audio only, or the artwork leaks into
-outputs.
+**Cover art:** these MP3s carry embedded cover art (an mjpeg stream). WAV/PCM has
+no standard container for it, so ffmpeg drops the art automatically when encoding
+the intermediates to `pcm_s24le` — nothing to strip. The audio-processing stages
+pass `-vn` only to silence a harmless warning. Cover art matters at the **final
+`encode` stage**, where carrying it (plus metadata) forward is *desirable* — see
+§6 `encode`.
 
 ## 3. Architecture
 
@@ -52,6 +58,7 @@ artifacts are inspectable on disk. Data flow:
 input.mp3  ──extract──▶  <track>_bass.wav
 <track>_bass.wav  ──detect──▶  <track>_silence_windows.json
 <track>_bass.wav + input.mp3 + windows.json  ──combine──▶  <track>_combined.wav
+<track>_combined.wav + input.mp3 (metadata/art)  ──encode──▶  <track>_bass.m4a
 ```
 
 Each arrow is one stage; each artifact is inspectable and hand-correctable before
@@ -73,6 +80,7 @@ bassify/
     extract.py
     detect.py               # silencedetect stderr parse, window pairing, JSON
     combine.py              # gate-string builder, mix
+    encode.py               # AAC/.m4a encode, metadata + cover art carry-forward
   tests/
   docs/                     # existing brief + this spec
   tracks/BluesBass/         # symlink to external source (gitignored)
@@ -89,16 +97,20 @@ bassify/
 ## 4. CLI (Typer)
 
 ```
-bassify extract  <in.mp3>  [-o PATH] [--lowpass HZ] [--force]
-bassify detect   <bass.wav> [-o PATH] [--threshold -40] [--min-gap 1.0] [--force]
+bassify extract  <in.mp3>   [-o PATH] [--lowpass HZ] [--force]
+bassify detect   <bass.wav>  [-o PATH] [--threshold -40] [--min-gap 1.0] [--force]
 bassify combine  <bass.wav> <original.mp3> <windows.json> [-o PATH] [--force]
-bassify run      <in.mp3>  [--lowpass HZ] [--threshold -40] [--min-gap 1.0] [--force]
+bassify encode   <combined.wav> <original.mp3> [-o PATH] [--force]
+bassify run      <in.mp3>   [--lowpass HZ] [--threshold -40] [--min-gap 1.0] [--force]
 ```
 
 - Typer chosen over argparse: subcommands map to typed functions, clean `--help`,
   autocompletion, standard in the modern uv/ruff ecosystem.
-- `run` chains extract → detect → combine, writing every intermediate to the
-  track's output dir so windows can be hand-corrected between runs.
+- `run` chains extract → detect → combine → encode, writing every intermediate to
+  the track's output dir so windows can be hand-corrected between runs and the
+  final `.m4a` is produced in one command.
+- `encode` takes the original MP3 as a second argument purely as the metadata /
+  cover-art source.
 - `-o` overrides a single artifact path for one-off use; default is the smart
   layout below.
 - Every ffmpeg command is printed before execution.
@@ -111,7 +123,7 @@ helper used by every stage — no ad-hoc path building.
 - **Collection dir** = the immediate parent directory name of the input file.
 - **Per-track subdir** = the track basename (extension stripped).
 - **Artifact names** = `<track>_bass.wav`, `<track>_silence_windows.json`,
-  `<track>_combined.wav`.
+  `<track>_combined.wav`, `<track>_bass.m4a`.
 
 Example — input `tracks/BluesBass/01_The Twelve Bar Blues Form.mp3`:
 
@@ -120,6 +132,7 @@ out/BluesBass/01_The Twelve Bar Blues Form/
   01_The Twelve Bar Blues Form_bass.wav
   01_The Twelve Bar Blues Form_silence_windows.json
   01_The Twelve Bar Blues Form_combined.wav
+  01_The Twelve Bar Blues Form_bass.m4a
 ```
 
 `out/` is gitignored.
@@ -169,10 +182,22 @@ against accidental clobber.
   trapezoidal gates or per-clip `afade` (noted, not built in V1).
 - Output: `<track>_combined.wav`.
 
+### `encode`
+
+- Encodes `<track>_combined.wav` to AAC in an `.m4a` container (`-c:a aac`,
+  ~256 kbps), the modern, universally playable deliverable.
+- Carries the **original MP3's** metadata (`-map_metadata` from the original) and
+  embeds its cover art (map the original's mjpeg stream as an attached picture,
+  `-disposition:v attached_pic`). The combined WAV supplies audio only; the
+  original supplies tags + art.
+- `-vn` is *not* used here — the art stream is intentionally kept.
+- Output: `<track>_bass.m4a`.
+
 ### `run`
 
-Creates the track output dir, chains extract → detect → combine, leaves all
-intermediates on disk for inspection and hand-correction.
+Creates the track output dir, chains extract → detect → combine → encode, leaves
+all intermediates (bass WAV, windows JSON, combined WAV) on disk for inspection
+and hand-correction alongside the final `.m4a`.
 
 ## 7. Tooling
 
@@ -184,7 +209,7 @@ intermediates on disk for inspection and hand-correction.
 - **pre-commit** — ruff check + ruff format hooks.
 - **justfile targets:** `install` (uv sync), `lint` (ruff check), `fmt`
   (ruff format), `test` (pytest), `check` (lint + test), and `run` / `extract` /
-  `detect` / `combine` passthroughs.
+  `detect` / `combine` / `encode` passthroughs.
 - **GitHub CI** (`.github/workflows/ci.yml`): on push/PR → setup uv, `uv sync`,
   `ruff check`, `ruff format --check`, install ffmpeg (apt), `pytest`.
 
@@ -198,6 +223,26 @@ intermediates on disk for inspection and hand-correction.
 - **Integration test** (marked, skipped when ffmpeg is absent): generate a tiny
   synthetic stereo WAV in-test → run `extract` → assert the bass channel is the
   L−R difference. Keeps CI honest without committing large audio files.
+
+### Interactive UAT (during development)
+
+Automated tests prove the plumbing; they cannot judge whether the bass *sounds*
+right. Each stage therefore has a human-in-the-loop checkpoint against real
+`tracks/BluesBass/` audio, run during development before the stage is considered
+done:
+
+- **After `extract`:** listen to `<track>_bass.wav`. Is the bass clean? Is the
+  joint-stereo ghost distracting enough to need `--lowpass`, and at what cutoff?
+- **After `detect`:** eyeball `<track>_silence_windows.json` against the track —
+  do the windows land on the actual spoken/count-in gaps, with no musical rests
+  caught and no announcements missed? Tune `--threshold` / `--min-gap`.
+- **After `combine`:** listen to `<track>_combined.wav`. Do speech and count-ins
+  reappear at the right spots with no clicks at boundaries and no 6 dB bass drop?
+- **After `encode`:** confirm `<track>_bass.m4a` plays everywhere it needs to and
+  carries the expected title/artist/album tags and cover art.
+
+These checkpoints will appear as explicit UAT verification tasks in the
+implementation plan, not as a final afterthought.
 
 ## 9. Later phases (not V1)
 
