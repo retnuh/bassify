@@ -5,8 +5,8 @@ the bass line from practice tracks recorded in a specific stereo format and
 recombines spoken announcements / count-ins onto the bass.
 
 Source brief: [`docs/bass-extraction-pipeline.md`](../../bass-extraction-pipeline.md).
-This spec covers **V1 = audio only** (`extract`, `detect`, `combine`, `encode`).
-The video `render` stage (CQT + waveform) is deferred to a later phase.
+This spec covers **V1 = audio only** (`extract`, `detect`, `combine`, `remix`,
+`encode`). The video `render` stage (CQT + waveform) is deferred to a later phase.
 
 ---
 
@@ -15,10 +15,14 @@ The video `render` stage (CQT + waveform) is deferred to a later phase.
 **In scope (V1):**
 - `extract` — isolate bass via L−R channel subtraction.
 - `detect` — find silence gaps in the bass, emit JSON windows.
-- `combine` — gate the original mix during those windows, mix onto the bass.
-- `encode` — compress the combined WAV to a shareable AAC/`.m4a`, carrying the
-  original MP3's metadata and cover art forward.
-- `run` — chain all four stages, leaving inspectable intermediates on disk.
+- `combine` — gate the original mix during those windows, mix onto the bass
+  (mono).
+- `remix` — build a pannable stereo file: L = combined (bass + speech), R =
+  original right channel (mix minus bass). Balance becomes a bass-level knob.
+- `encode` — compress both the mono combined WAV and the stereo remix WAV to
+  shareable AAC/`.m4a`, carrying the original MP3's metadata and cover art
+  forward.
+- `run` — chain all stages, leaving inspectable intermediates on disk.
 - Smart, reusable output-path layout mirroring the input collection.
 - Interactive UAT checkpoints while developing each stage (see §8).
 - Modern Python tooling: uv, ruff, pre-commit, justfile, GitHub CI.
@@ -58,7 +62,8 @@ artifacts are inspectable on disk. Data flow:
 input.mp3  ──extract──▶  <track>_bass.wav
 <track>_bass.wav  ──detect──▶  <track>_silence_windows.json
 <track>_bass.wav + input.mp3 + windows.json  ──combine──▶  <track>_combined.wav
-<track>_combined.wav + input.mp3 (metadata/art)  ──encode──▶  <track>_bass.m4a
+<track>_combined.wav + input.mp3 (right ch)  ──remix──▶  <track>_remix.wav
+<track>_combined.wav + <track>_remix.wav + input.mp3 (meta/art)  ──encode──▶  <track>_combined.m4a, <track>_remix.m4a
 ```
 
 Each arrow is one stage; each artifact is inspectable and hand-correctable before
@@ -79,7 +84,8 @@ bassify/
     ffmpeg.py               # run_ffmpeg(), ffprobe_duration()
     extract.py
     detect.py               # silencedetect stderr parse, window pairing, JSON
-    combine.py              # gate-string builder, mix
+    combine.py              # gate-string builder, mix (mono)
+    remix.py                # stereo: L=combined, R=original right channel
     encode.py               # AAC/.m4a encode, metadata + cover art carry-forward
   tests/
   docs/                     # existing brief + this spec
@@ -100,17 +106,19 @@ bassify/
 bassify extract  <in.mp3>   [-o PATH] [--lowpass HZ] [--force]
 bassify detect   <bass.wav>  [-o PATH] [--threshold -40] [--min-gap 1.0] [--force]
 bassify combine  <bass.wav> <original.mp3> <windows.json> [-o PATH] [--force]
-bassify encode   <combined.wav> <original.mp3> [-o PATH] [--force]
+bassify remix    <combined.wav> <original.mp3> [-o PATH] [--force]
+bassify encode   <audio.wav> <original.mp3> [-o PATH] [--force]
 bassify run      <in.mp3>   [--lowpass HZ] [--threshold -40] [--min-gap 1.0] [--force]
 ```
 
 - Typer chosen over argparse: subcommands map to typed functions, clean `--help`,
   autocompletion, standard in the modern uv/ruff ecosystem.
-- `run` chains extract → detect → combine → encode, writing every intermediate to
-  the track's output dir so windows can be hand-corrected between runs and the
-  final `.m4a` is produced in one command.
-- `encode` takes the original MP3 as a second argument purely as the metadata /
-  cover-art source.
+- `run` chains extract → detect → combine → remix → encode, writing every
+  intermediate to the track's output dir so windows can be hand-corrected between
+  runs and the final `.m4a` files are produced in one command.
+- `remix` takes the original MP3 as its right-channel source.
+- `encode` takes any produced WAV plus the original MP3 (as metadata / cover-art
+  source); in `run` it is invoked for both the combined and remix WAVs.
 - `-o` overrides a single artifact path for one-off use; default is the smart
   layout below.
 - Every ffmpeg command is printed before execution.
@@ -123,7 +131,8 @@ helper used by every stage — no ad-hoc path building.
 - **Collection dir** = the immediate parent directory name of the input file.
 - **Per-track subdir** = the track basename (extension stripped).
 - **Artifact names** = `<track>_bass.wav`, `<track>_silence_windows.json`,
-  `<track>_combined.wav`, `<track>_bass.m4a`.
+  `<track>_combined.wav`, `<track>_remix.wav`, `<track>_combined.m4a`,
+  `<track>_remix.m4a`.
 
 Example — input `tracks/BluesBass/01_The Twelve Bar Blues Form.mp3`:
 
@@ -132,7 +141,9 @@ out/BluesBass/01_The Twelve Bar Blues Form/
   01_The Twelve Bar Blues Form_bass.wav
   01_The Twelve Bar Blues Form_silence_windows.json
   01_The Twelve Bar Blues Form_combined.wav
-  01_The Twelve Bar Blues Form_bass.m4a
+  01_The Twelve Bar Blues Form_remix.wav
+  01_The Twelve Bar Blues Form_combined.m4a
+  01_The Twelve Bar Blues Form_remix.m4a
 ```
 
 `out/` is gitignored.
@@ -182,22 +193,41 @@ against accidental clobber.
   trapezoidal gates or per-clip `afade` (noted, not built in V1).
 - Output: `<track>_combined.wav`.
 
+### `remix`
+
+- Builds a stereo WAV where **L = the combined track** (mono bass + speech +
+  count-in) and **R = the original mix's right channel** (everything but bass).
+- ffmpeg: take the combined mono as one input and the original as another, use
+  `pan=stereo|c0=c0|c1=c1` sourcing L from the combined input and R from the
+  original's channel 1 (via a `filter_complex` that maps the two sources).
+- Balance becomes a bass-level knob: pan hard-left = isolated bass to learn,
+  hard-right = backing track without bass to play along, center = both — mirroring
+  the source format's intent in a single file.
+- **Not a re-processable source:** its R is the original mix-minus-bass, so the
+  L−R identity that `extract` relies on does *not* hold for this file. It is a
+  listening/practice artifact only; never feed a remix back into `extract`.
+- **Length guard:** combined WAV and original must match; reuse the `combine`
+  duration check.
+- Output: `<track>_remix.wav`.
+
 ### `encode`
 
-- Encodes `<track>_combined.wav` to AAC in an `.m4a` container (`-c:a aac`,
-  ~256 kbps), the modern, universally playable deliverable.
+- Encodes a given WAV to AAC in an `.m4a` container (`-c:a aac`, ~256 kbps), the
+  modern, universally playable deliverable. In `run` it is invoked twice — once
+  for `<track>_combined.wav` → `<track>_combined.m4a`, once for
+  `<track>_remix.wav` → `<track>_remix.m4a`.
 - Carries the **original MP3's** metadata (`-map_metadata` from the original) and
   embeds its cover art (map the original's mjpeg stream as an attached picture,
-  `-disposition:v attached_pic`). The combined WAV supplies audio only; the
-  original supplies tags + art.
+  `-disposition:v attached_pic`). The WAV supplies audio only; the original
+  supplies tags + art.
 - `-vn` is *not* used here — the art stream is intentionally kept.
-- Output: `<track>_bass.m4a`.
+- Output: `<input-wav-stem>.m4a` in the track dir.
 
 ### `run`
 
-Creates the track output dir, chains extract → detect → combine → encode, leaves
-all intermediates (bass WAV, windows JSON, combined WAV) on disk for inspection
-and hand-correction alongside the final `.m4a`.
+Creates the track output dir, chains extract → detect → combine → remix → encode
+(twice), leaving all intermediates (bass WAV, windows JSON, combined WAV, remix
+WAV) on disk for inspection and hand-correction alongside the final `.m4a` files.
 
 ## 7. Tooling
 
@@ -209,7 +239,7 @@ and hand-correction alongside the final `.m4a`.
 - **pre-commit** — ruff check + ruff format hooks.
 - **justfile targets:** `install` (uv sync), `lint` (ruff check), `fmt`
   (ruff format), `test` (pytest), `check` (lint + test), and `run` / `extract` /
-  `detect` / `combine` / `encode` passthroughs.
+  `detect` / `combine` / `remix` / `encode` passthroughs.
 - **GitHub CI** (`.github/workflows/ci.yml`): on push/PR → setup uv, `uv sync`,
   `ruff check`, `ruff format --check`, install ffmpeg (apt), `pytest`.
 
@@ -219,6 +249,7 @@ and hand-correction alongside the final `.m4a`.
   - silencedetect stderr parser (feed sample text).
   - window pairing, including the unpaired trailing-start case.
   - gate-string builder.
+  - remix pan/channel-map string builder.
   - `resolve_paths()` collection/track/artifact derivation.
 - **Integration test** (marked, skipped when ffmpeg is absent): generate a tiny
   synthetic stereo WAV in-test → run `extract` → assert the bass channel is the
@@ -238,8 +269,12 @@ done:
   caught and no announcements missed? Tune `--threshold` / `--min-gap`.
 - **After `combine`:** listen to `<track>_combined.wav`. Do speech and count-ins
   reappear at the right spots with no clicks at boundaries and no 6 dB bass drop?
-- **After `encode`:** confirm `<track>_bass.m4a` plays everywhere it needs to and
-  carries the expected title/artist/album tags and cover art.
+- **After `remix`:** listen to `<track>_remix.wav` while sweeping the balance.
+  Does hard-left give isolated bass, hard-right the bass-less backing, center
+  both? Are the two channels time-aligned?
+- **After `encode`:** confirm `<track>_combined.m4a` and `<track>_remix.m4a` play
+  everywhere they need to and carry the expected title/artist/album tags and
+  cover art.
 
 These checkpoints will appear as explicit UAT verification tasks in the
 implementation plan, not as a final afterthought.
