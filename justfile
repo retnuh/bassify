@@ -35,6 +35,10 @@ encode *ARGS:
 run *ARGS:
     uv run bassify run {{ARGS}}
 
-# Delete all intermediate .wav files under out/, leaving .m4a and .json untouched
-clean-intermediates:
+# Remove intermediate *.wav under out/ (pass --json to also remove *.json)
+clean-intermediates *FLAGS:
+    #!/usr/bin/env bash
     find out -type f -name '*.wav' -delete 2>/dev/null || true
+    if echo "{{FLAGS}}" | grep -q -- --json; then
+        find out -type f -name '*.json' -delete 2>/dev/null || true
+    fi
