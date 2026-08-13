@@ -2,8 +2,8 @@
 name = "bassify"
 version = "0.1.0"
 description = "Isolate bass from specially-formatted stereo practice tracks"
-requires-python = ">=3.12"
-dependencies = ["typer>=0.12"]
+requires-python = ">=3.13,<3.14"
+dependencies = ["typer>=0.12", "librosa>=0.10"]
 
 [project.scripts]
 bassify = "bassify.cli:app"
