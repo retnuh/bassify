@@ -31,9 +31,25 @@ def build(win, hp, out):
         f"[0:a][body][tail]amix=inputs=3:normalize=0[out]"
     )
     subprocess.run(
-        ["ffmpeg", "-hide_banner", "-y",
-         "-i", BASS, "-i", ORIG, "-i", ORIG,
-         "-filter_complex", fg, "-map", "[out]", "-vn", "-c:a", "pcm_s24le", out],
+        [
+            "ffmpeg",
+            "-hide_banner",
+            "-y",
+            "-i",
+            BASS,
+            "-i",
+            ORIG,
+            "-i",
+            ORIG,
+            "-filter_complex",
+            fg,
+            "-map",
+            "[out]",
+            "-vn",
+            "-c:a",
+            "pcm_s24le",
+            out,
+        ],
         capture_output=True,
     )
     print(f"wrote {out} (hp={hp})")

@@ -25,9 +25,7 @@ def onsets_in(start, end):
     seg = y[a:b]
     # onset envelope + peak picking; backtrack to local minima for true starts
     env = librosa.onset.onset_strength(y=seg, sr=sr)
-    frames = librosa.onset.onset_detect(
-        onset_envelope=env, sr=sr, backtrack=True, units="frames"
-    )
+    frames = librosa.onset.onset_detect(onset_envelope=env, sr=sr, backtrack=True, units="frames")
     times = librosa.frames_to_time(frames, sr=sr) + start
     return times
 
@@ -66,7 +64,9 @@ for i, w in enumerate(WINS):
         # tail = median of the tight end-gaps; cutoff = last + tail
         tail = 0.15
         cutoff = min(we, last + tail)
-        verdict = f"COUNT-IN last={last:.3f} CUTOFF={cutoff:.3f} (delta {(cutoff - we) * 1000:+.0f}ms)"
+        verdict = (
+            f"COUNT-IN last={last:.3f} CUTOFF={cutoff:.3f} (delta {(cutoff - we) * 1000:+.0f}ms)"
+        )
     else:
         verdict = "not a count-in -> fallback to end"
     print(f"win{i} [{ws:.2f}-{we:.2f}] {len(clicks)} clicks gaps=[{','.join(gaps)}]  {verdict}")

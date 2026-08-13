@@ -35,6 +35,8 @@ for i, w in enumerate(WINS):
         continue
     last_click = bass_ons[-1]
     cut = min(we, last_click + OFFSET)
-    print(f"win{i} [{ws:.2f}-{we:.2f}] last_click={last_click:.3f} bass={we:.3f} "
-          f"CUT={cut:.3f} (delta {(cut - we) * 1000:+.0f}ms, "
-          f"click->bass {(we - last_click) * 1000:.0f}ms)")
+    print(
+        f"win{i} [{ws:.2f}-{we:.2f}] last_click={last_click:.3f} bass={we:.3f} "
+        f"CUT={cut:.3f} (delta {(cut - we) * 1000:+.0f}ms, "
+        f"click->bass {(we - last_click) * 1000:.0f}ms)"
+    )

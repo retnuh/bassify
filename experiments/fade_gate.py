@@ -25,8 +25,7 @@ def ramp_expr(start, cutoff, fade_end):
     """volume term: 1 in [start,cutoff], linear 1->0 in [cutoff,fade_end]."""
     full = f"between(t,{start:.3f},{cutoff:.3f})"
     ramp = (
-        f"between(t,{cutoff:.3f},{fade_end:.3f})"
-        f"*(1-(t-{cutoff:.3f})/({fade_end:.3f}-{cutoff:.3f}))"
+        f"between(t,{cutoff:.3f},{fade_end:.3f})*(1-(t-{cutoff:.3f})/({fade_end:.3f}-{cutoff:.3f}))"
     )
     return f"({full}+{ramp})"
 
@@ -42,8 +41,23 @@ def build(frac, out):
         f"[0:a][gap]amix=inputs=2:normalize=0[out]"
     )
     subprocess.run(
-        ["ffmpeg", "-hide_banner", "-y", "-i", BASS, "-i", ORIG,
-         "-filter_complex", fg, "-map", "[out]", "-vn", "-c:a", "pcm_s24le", out],
+        [
+            "ffmpeg",
+            "-hide_banner",
+            "-y",
+            "-i",
+            BASS,
+            "-i",
+            ORIG,
+            "-filter_complex",
+            fg,
+            "-map",
+            "[out]",
+            "-vn",
+            "-c:a",
+            "pcm_s24le",
+            out,
+        ],
         capture_output=True,
     )
     print(f"wrote {out} (fade to {frac * 100:.0f}% toward bass)")
