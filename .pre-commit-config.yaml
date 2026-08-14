@@ -1,0 +1,19 @@
+# Pre-commit runs the same gate as CI. The ruff hooks auto-fix/format first
+# (convenience), then `just check` verifies the EXACT CI gate
+# (ruff check + ruff format --check + pytest) so nothing that fails CI is
+# committable. The justfile `check` recipe is the single source of truth.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.2
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+  - repo: local
+    hooks:
+      - id: just-check
+        name: just check (lint + format check + tests — same as CI)
+        entry: just check
+        language: system
+        pass_filenames: false
+        always_run: true

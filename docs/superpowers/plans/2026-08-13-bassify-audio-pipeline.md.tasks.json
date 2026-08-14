@@ -1,0 +1,110 @@
+{
+  "planPath": "docs/superpowers/plans/2026-08-13-bassify-audio-pipeline.md",
+  "tasks": [
+    {
+      "id": 0,
+      "subject": "Task 0: Project scaffold",
+      "status": "completed",
+      "description": "**Goal:** A working uv project with Typer, ruff, pytest, pre-commit, justfile, CI, and an importable empty `bassify` package.\n\n**Files:**\n- Create: `pyproject.toml`, `justfile`, `.pre-commit-config.yaml`, `.github/workflows/ci.yml`, `src/bassify/__init__.py`, `src/bassify/cli.py`\n- Modify: `.gitignore` (append `out/` and `tracks/`)\n\n**Acceptance Criteria:**\n- [ ] `uv sync` succeeds and creates a lockfile.\n- [ ] `uv run bassify --help` prints Typer help without error.\n- [ ] `uv run ruff check .` and `uv run ruff format --check .` pass.\n- [ ] `uv run pytest` exits 0.\n- [ ] `out/` and `tracks/` are gitignored.\n\n**Verify:** `uv sync && uv run ruff check . && uv run pytest -q` \u2192 all exit 0\n\n```json:metadata\n{\"files\": [\"pyproject.toml\", \"justfile\", \".pre-commit-config.yaml\", \".github/workflows/ci.yml\", \"src/bassify/__init__.py\", \"src/bassify/cli.py\", \".gitignore\"], \"verifyCommand\": \"uv sync && uv run ruff check . && uv run pytest -q\", \"acceptanceCriteria\": [\"uv sync succeeds\", \"bassify --help works\", \"ruff check + format pass\", \"pytest exits 0\", \"out/ and tracks/ gitignored\"], \"modelTier\": \"standard\"}\n```"
+    },
+    {
+      "id": 1,
+      "subject": "Task 1: Slice spec + path resolution",
+      "status": "completed",
+      "blockedBy": [
+        0
+      ],
+      "description": "**Goal:** Pure, unit-tested `SliceSpec` (duration/start \u2192 suffix + ffmpeg args) and `resolve_paths()` producing every artifact path with the correct slice suffix.\n\n**Files:**\n- Create: `src/bassify/slice.py`, `src/bassify/paths.py`\n- Test: `tests/test_slice.py`, `tests/test_paths.py`\n\n**Acceptance Criteria:**\n- [ ] `SliceSpec` renders suffixes: none\u2192``, duration\u2192`_d15s`, start\u2192`_s30s`, both\u2192`_d15s_s30s`.\n- [ ] `SliceSpec.input_args()` returns `-ss` before `-t`, `[]` when empty.\n- [ ] `resolve_paths()` derives collection=parent dir name, track=stem, builds all six artifact paths under `out/<collection>/<track>/` with suffix before extension.\n- [ ] Integer floats render without `.0`; non-integers compact.\n\n**Verify:** `uv run pytest tests/test_slice.py tests/test_paths.py -v` \u2192 all pass\n\n```json:metadata\n{\"files\": [\"src/bassify/slice.py\", \"src/bassify/paths.py\", \"tests/test_slice.py\", \"tests/test_paths.py\"], \"verifyCommand\": \"uv run pytest tests/test_slice.py tests/test_paths.py -v\", \"acceptanceCriteria\": [\"suffix rendering none/duration/start/both\", \"input_args -ss before -t\", \"resolve_paths six artifacts\", \"integer floats render without .0\"], \"modelTier\": \"standard\"}\n```"
+    },
+    {
+      "id": 2,
+      "subject": "Task 2: ffmpeg/ffprobe helpers",
+      "status": "completed",
+      "blockedBy": [
+        0
+      ],
+      "description": "**Goal:** Shared subprocess helpers: `run_ffmpeg()`, `run_ffmpeg_capture()`, `ffprobe_duration()`, `should_skip()`.\n\n**Files:**\n- Create: `src/bassify/ffmpeg.py`\n- Test: `tests/test_ffmpeg.py`\n\n**Acceptance Criteria:**\n- [ ] `run_ffmpeg(args)` prepends `ffmpeg -hide_banner -y` and prints the command before running.\n- [ ] Non-zero exit raises `FfmpegError` with a stderr tail.\n- [ ] `ffprobe_duration(path)` returns float; `parse_duration` raises on bad input.\n- [ ] `should_skip(output, force)` True only when output exists and force False.\n\n**Verify:** `uv run pytest tests/test_ffmpeg.py -v` \u2192 all pass\n\n```json:metadata\n{\"files\": [\"src/bassify/ffmpeg.py\", \"tests/test_ffmpeg.py\"], \"verifyCommand\": \"uv run pytest tests/test_ffmpeg.py -v\", \"acceptanceCriteria\": [\"run_ffmpeg prints + raises\", \"FfmpegError stderr tail\", \"ffprobe_duration float, parse_duration raises\", \"should_skip logic\"], \"modelTier\": \"standard\"}\n```"
+    },
+    {
+      "id": 3,
+      "subject": "Task 3: extract stage + CLI",
+      "status": "completed",
+      "blockedBy": [
+        1,
+        2
+      ],
+      "description": "**Goal:** Implement L\u2212R bass extraction to `bass.wav` with optional lowpass and slice, wired into Typer CLI as `bassify extract`.\n\n**Files:**\n- Create: `src/bassify/extract.py`\n- Modify: `src/bassify/cli.py`\n\n**Acceptance Criteria:**\n- [ ] `extract_bass()` builds ffmpeg with `pan=mono|c0=c0-c1`, `-c:a pcm_s24le`, `-vn`, plus slice args when `cut_inputs` True.\n- [ ] `--lowpass HZ` appends `,lowpass=f=HZ`; omitted by default.\n- [ ] Output from `resolve_paths()`; parent dirs created; skip-if-exists.\n- [ ] `bassify extract --help` shows all options.\n\n**Verify:** `uv run bassify extract --help` exits 0 with all options.\n\n```json:metadata\n{\"files\": [\"src/bassify/extract.py\", \"src/bassify/cli.py\"], \"verifyCommand\": \"uv run bassify extract --help\", \"acceptanceCriteria\": [\"build_filter pan=mono c0=c0-c1 + lowpass\", \"pcm_s24le -vn + slice args\", \"resolve_paths + mkdir + skip\", \"CLI help\"], \"modelTier\": \"standard\"}\n```"
+    },
+    {
+      "id": 4,
+      "subject": "Task 4: detect stage + CLI",
+      "status": "completed",
+      "blockedBy": [
+        1,
+        2
+      ],
+      "description": "**Goal:** Parse ffmpeg `silencedetect` stderr into padded `(start,end)` windows (handling unpaired trailing starts), emit JSON, wire `bassify detect`.\n\n**Files:**\n- Create: `src/bassify/detect.py`\n- Modify: `src/bassify/cli.py`\n- Test: `tests/test_detect.py`\n\n**Acceptance Criteria:**\n- [ ] `parse_silences(stderr, duration)` pairs windows; unpaired trailing start closed at `duration`.\n- [ ] Windows padded \u00b10.1s, clamped to `[0, duration]`.\n- [ ] `detect_windows()` writes JSON list; skip-if-exists.\n- [ ] `bassify detect --help` exposes threshold/min-gap/duration/start/force.\n\n**Verify:** `uv run pytest tests/test_detect.py -v` \u2192 all pass\n\n```json:metadata\n{\"files\": [\"src/bassify/detect.py\", \"src/bassify/cli.py\", \"tests/test_detect.py\"], \"verifyCommand\": \"uv run pytest tests/test_detect.py -v\", \"acceptanceCriteria\": [\"parse_silences pairs\", \"trailing start closed at duration\", \"padding clamp\", \"JSON + skip\", \"CLI options\"], \"modelTier\": \"standard\"}\n```"
+    },
+    {
+      "id": 5,
+      "subject": "Task 5: combine stage + CLI",
+      "status": "completed",
+      "blockedBy": [
+        1,
+        2
+      ],
+      "description": "**Goal:** Build `between(t,...)` gate string from windows and mix gated original speech onto mono bass \u2192 `combined.wav`; wire `bassify combine`.\n\n**Files:**\n- Create: `src/bassify/combine.py`\n- Modify: `src/bassify/cli.py`\n- Test: `tests/test_combine.py`\n\n**Acceptance Criteria:**\n- [ ] `build_gate(windows)` returns `between(t,a,b)+...`; empty\u2192`0`.\n- [ ] `build_filtergraph()` gates original (mono) with `eval=frame`, mixes `amix=inputs=2:normalize=0`, output `[out]`.\n- [ ] `combine_track()` reads JSON, writes mono `combined.wav`, skip-if-exists, warns on >0.1s mismatch when cut_inputs.\n- [ ] `bassify combine --help` exposes duration/start/force/-o.\n\n**Verify:** `uv run pytest tests/test_combine.py -v` \u2192 all pass\n\n```json:metadata\n{\"files\": [\"src/bassify/combine.py\", \"src/bassify/cli.py\", \"tests/test_combine.py\"], \"verifyCommand\": \"uv run pytest tests/test_combine.py -v\", \"acceptanceCriteria\": [\"build_gate + empty 0\", \"filtergraph eval=frame + amix + [out]\", \"combine_track mono + skip + warn\", \"CLI options\"], \"modelTier\": \"standard\"}\n```"
+    },
+    {
+      "id": 6,
+      "subject": "Task 6: remix stage + CLI",
+      "status": "completed",
+      "blockedBy": [
+        1,
+        2
+      ],
+      "description": "**Goal:** Build a stereo file with L=combined (mono), R=original right channel; wire `bassify remix`.\n\n**Files:**\n- Create: `src/bassify/remix.py`\n- Modify: `src/bassify/cli.py`\n- Test: `tests/test_remix.py`\n\n**Acceptance Criteria:**\n- [ ] `build_filtergraph()` isolates original right (`pan=mono|c0=c1`) and joins into stereo `[out]` (L=combined, R=original right).\n- [ ] `remix_track()` writes stereo `remix.wav`, skip-if-exists, warns on >0.1s mismatch when cut_inputs.\n- [ ] `bassify remix --help` exposes duration/start/force/-o.\n\n**Verify:** `uv run pytest tests/test_remix.py -v` \u2192 all pass\n\n```json:metadata\n{\"files\": [\"src/bassify/remix.py\", \"src/bassify/cli.py\", \"tests/test_remix.py\"], \"verifyCommand\": \"uv run pytest tests/test_remix.py -v\", \"acceptanceCriteria\": [\"filtergraph pan c0=c1 + join stereo [out]\", \"remix_track stereo + skip + warn\", \"CLI options\"], \"modelTier\": \"standard\"}\n```"
+    },
+    {
+      "id": 7,
+      "subject": "Task 7: encode stage + CLI",
+      "status": "completed",
+      "blockedBy": [
+        2
+      ],
+      "description": "**Goal:** Encode a WAV to AAC `.m4a`, carrying the original MP3's metadata and cover art; wire `bassify encode`.\n\n**Files:**\n- Create: `src/bassify/encode.py`\n- Modify: `src/bassify/cli.py`\n\n**Acceptance Criteria:**\n- [ ] `encode_track()` builds `-map 0:a -map 1:v -c:a aac -b:a 256k -c:v copy -disposition:v attached_pic -map_metadata 1` (no `-vn`).\n- [ ] Output `.m4a` defaults next to source WAV; parent dirs created; skip-if-exists.\n- [ ] Missing cover art falls back to audio-only encode (no crash).\n- [ ] `bassify encode --help` exposes -o, --force.\n\n**Verify:** `uv run bassify encode --help` exits 0.\n\n```json:metadata\n{\"files\": [\"src/bassify/encode.py\", \"src/bassify/cli.py\"], \"verifyCommand\": \"uv run bassify encode --help\", \"acceptanceCriteria\": [\"aac 256k + attached_pic + map_metadata no -vn\", \"output .m4a + mkdir + skip\", \"art-missing fallback\", \"CLI options\"], \"modelTier\": \"standard\"}\n```"
+    },
+    {
+      "id": 8,
+      "subject": "Task 8: run pipeline + CLI",
+      "status": "pending",
+      "blockedBy": [
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "description": "**Goal:** `run_pipeline()` chaining extract \u2192 detect \u2192 combine \u2192 remix \u2192 encode(\u00d72), applying the ffmpeg time-cut only at extract and carrying the slice suffix through filenames; wire `bassify run`.\n\n**Files:**\n- Create: `src/bassify/pipeline.py`\n- Modify: `src/bassify/cli.py`\n\n**Acceptance Criteria:**\n- [ ] `run_pipeline()` uses `resolve_paths()` outputs; intermediates land in `out/<collection>/<track>/`.\n- [ ] `extract` gets `cut_inputs=True`; downstream get `cut_inputs=False` with same `slice_spec`.\n- [ ] `encode` invoked twice: combined\u2192combined.m4a, remix\u2192remix.m4a.\n- [ ] `bassify run --help` exposes all options; root help lists all six commands.\n\n**Verify:** `uv run bassify --help && uv run bassify run --help` \u2192 exit 0.\n\n```json:metadata\n{\"files\": [\"src/bassify/pipeline.py\", \"src/bassify/cli.py\"], \"verifyCommand\": \"uv run bassify --help && uv run bassify run --help\", \"acceptanceCriteria\": [\"chains 5 stages via resolve_paths\", \"cut_inputs True only at extract\", \"encode twice\", \"CLI help complete\"], \"modelTier\": \"standard\"}\n```"
+    },
+    {
+      "id": 9,
+      "subject": "Task 9: integration test (synthetic)",
+      "status": "pending",
+      "blockedBy": [
+        8
+      ],
+      "description": "**Goal:** A marked integration test that synthesizes a tiny stereo WAV (L=bass tone+noise, R=noise only), runs extract, asserts L\u2212R works; plus a full-pipeline slice artifact check. No committed audio.\n\n**Files:**\n- Create: `tests/test_integration.py`\n\n**Acceptance Criteria:**\n- [ ] Marked `@pytest.mark.integration`, skipped when ffmpeg/ffprobe absent.\n- [ ] Generates synthetic stereo via ffmpeg lavfi, runs `extract_bass()`, asserts mono output.\n- [ ] Runs full `run_pipeline()` with a short slice (monkeypatch.chdir tmp_path), checks all six artifacts exist with slice suffix.\n\n**Verify:** `uv run pytest tests/test_integration.py -v && uv run pytest -q` \u2192 green or clean skip.\n\n```json:metadata\n{\"files\": [\"tests/test_integration.py\"], \"verifyCommand\": \"uv run pytest tests/test_integration.py -v && uv run pytest -q\", \"acceptanceCriteria\": [\"marked integration skipif no ffmpeg\", \"synthetic stereo -> mono extract\", \"full pipeline slice -> six artifacts hermetic chdir\"], \"modelTier\": \"standard\"}\n```"
+    },
+    {
+      "id": 10,
+      "subject": "Task 10: Interactive UAT on real tracks",
+      "status": "pending",
+      "blockedBy": [
+        9
+      ],
+      "description": "**Goal:** **USER-ORDERED GATE \u2014 NON-SKIPPABLE.** This task was requested by the user in the current conversation. It MUST NOT be closed by walking around it, by declaring it \"verified inline\", or by substituting a cheaper check. Close only after every item in `acceptanceCriteria` has been re-validated independently, with output captured.\n\nRun the pipeline against a real `tracks/BluesBass/` track and walk the user through listening/inspecting each stage.\n\n**Files:**\n- None (verification only).\n\n**Acceptance Criteria:**\n- [ ] `bassify run \"tracks/BluesBass/01_The Twelve Bar Blues Form.mp3\" --duration 30` exits 0 and produces all six `_d30s` artifacts under `out/BluesBass/01_The Twelve Bar Blues Form/`. Capture output + `ls`.\n- [ ] extract: user confirms bass isolated/clean, records `--lowpass` decision.\n- [ ] detect: user confirms windows land on real gaps; records threshold/min-gap change.\n- [ ] combine: user confirms speech placement, no clicks, no 6 dB drop.\n- [ ] remix: user confirms balance sweep + channel alignment.\n- [ ] encode: ffprobe shows AAC + attached_pic + tags; user confirms playback.\n\n**Verify:** `uv run bassify run \"tracks/BluesBass/01_The Twelve Bar Blues Form.mp3\" --duration 30 --force` \u2192 exit 0; then `ffprobe -hide_banner` on the combined .m4a shows AAC + attached_pic + metadata. User verbally confirms each per-stage criterion.\n\n```json:metadata\n{\"files\": [], \"verifyCommand\": \"uv run bassify run \\\"tracks/BluesBass/01_The Twelve Bar Blues Form.mp3\\\" --duration 30 --force\", \"acceptanceCriteria\": [\"run exits 0 + six _d30s artifacts\", \"extract confirmed + lowpass recorded\", \"detect windows on real gaps\", \"combine placement no clicks/drop\", \"remix balance + alignment\", \"encode ffprobe AAC+attached_pic+tags + playback\"], \"userGate\": true, \"tags\": [\"user-gate\"], \"requireEvidenceTokens\": [[\"exit 0\", \"artifacts\"], [\"ffprobe\", \"attached_pic\"]], \"modelTier\": \"frontier\"}\n```"
+    }
+  ],
+  "lastUpdated": "2026-08-14"
+}

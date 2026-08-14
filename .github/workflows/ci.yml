@@ -1,0 +1,26 @@
+name: CI
+
+# Run on direct pushes to main and on PRs. Scoping push to main avoids the
+# double run you'd get on a PR branch (push + pull_request both firing).
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+      - name: Install just
+        uses: extractions/setup-just@v2
+      - name: Sync
+        run: uv sync
+      # Run the exact same gate developers run locally: `just check`
+      # (lint + format check + tests). Keep this as the single source of truth.
+      - name: Check
+        run: just check

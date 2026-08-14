@@ -1,0 +1,34 @@
+[project]
+name = "bassify"
+version = "0.1.0"
+description = "Isolate bass from specially-formatted stereo practice tracks"
+requires-python = ">=3.13,<3.14"
+dependencies = ["typer>=0.12", "librosa>=0.10", "mutagen>=1.47"]
+
+[project.scripts]
+bassify = "bassify.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/bassify"]
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.6", "pre-commit>=3.8"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+exclude = ["docs", ".superpowers"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+"experiments/*.py" = ["F841"]
+
+[tool.pytest.ini_options]
+markers = ["integration: requires ffmpeg on PATH"]
+testpaths = ["tests"]

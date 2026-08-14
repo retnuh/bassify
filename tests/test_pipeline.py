@@ -1,0 +1,347 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from bassify.extract import DEFAULT_LOWPASS
+from bassify.paths import resolve_paths
+from bassify.slice import SliceSpec
+
+
+def test_run_pipeline_call_order_and_slice_threading(monkeypatch, tmp_path):
+    """run_pipeline calls all 5 stages in order; extract keeps cut_inputs=True;
+    detect/combine/remix receive slice_spec and no longer take cut_inputs."""
+    calls = []
+
+    input_mp3 = tmp_path / "tracks" / "Band" / "01_Song.mp3"
+    input_mp3.parent.mkdir(parents=True)
+    input_mp3.touch()
+
+    spec = SliceSpec(duration=30.0)
+    paths = resolve_paths(input_mp3, slice_spec=spec)
+
+    def fake_extract_bass(
+        input_path,
+        output=None,
+        lowpass=DEFAULT_LOWPASS,
+        slice_spec=None,
+        cut_inputs=True,
+        force=False,
+    ):
+        calls.append(
+            (
+                "extract_bass",
+                {"cut_inputs": cut_inputs, "lowpass": lowpass, "slice_spec": slice_spec},
+            )
+        )
+        return paths.bass
+
+    def fake_detect_windows(
+        bass_path,
+        output=None,
+        threshold=-40.0,
+        min_gap=1.0,
+        pad_start=0.0,
+        pad_end=-0.05,
+        min_riff=0.5,
+        slice_spec=None,
+        force=False,
+        original_path=None,
+        drop_trailing=True,
+    ):
+        calls.append(("detect_windows", {"slice_spec": slice_spec, "original_path": original_path}))
+        return paths.windows
+
+    def fake_combine_track(
+        bass_path,
+        original_path,
+        windows_path,
+        output=None,
+        slice_spec=None,
+        force=False,
+    ):
+        calls.append(("combine_track", {"slice_spec": slice_spec}))
+        return paths.bass_only
+
+    def fake_remix_track(combined_path, original_path, output=None, slice_spec=None, force=False):
+        calls.append(("remix_track", {"slice_spec": slice_spec}))
+        return paths.remix
+
+    encode_calls = []
+
+    def fake_encode_track(wav_path, original_path, output=None, force=False, title_suffix=None):
+        encode_calls.append((output, title_suffix))
+
+    import bassify.pipeline as pipeline_mod
+
+    monkeypatch.setattr(pipeline_mod, "extract_bass", fake_extract_bass)
+    monkeypatch.setattr(pipeline_mod, "detect_windows", fake_detect_windows)
+    monkeypatch.setattr(pipeline_mod, "combine_track", fake_combine_track)
+    monkeypatch.setattr(pipeline_mod, "remix_track", fake_remix_track)
+    monkeypatch.setattr(pipeline_mod, "encode_track", fake_encode_track)
+
+    from bassify.pipeline import run_pipeline
+
+    run_pipeline(input_mp3, slice_spec=spec)
+
+    # (a) call order
+    assert [c[0] for c in calls] == [
+        "extract_bass",
+        "detect_windows",
+        "combine_track",
+        "remix_track",
+    ]
+
+    # (b) extract got cut_inputs=True
+    assert calls[0][1]["cut_inputs"] is True
+
+    # (c) extract got the slice_spec
+    assert calls[0][1]["slice_spec"] == spec
+
+    # (d) detect/combine/remix all got slice_spec
+    assert calls[1][1]["slice_spec"] == spec
+    assert calls[2][1]["slice_spec"] == spec
+    assert calls[3][1]["slice_spec"] == spec
+
+    # (e) detect got original_path == input_path
+    assert calls[1][1]["original_path"] == input_mp3
+
+    # (f) encode called twice with the two m4a targets; bass_only gets the title marker
+    assert len(encode_calls) == 2
+    encode_outputs = [ec[0] for ec in encode_calls]
+    encode_suffixes = {ec[0]: ec[1] for ec in encode_calls}
+    assert paths.bass_only_m4a in encode_outputs
+    assert paths.remix_m4a in encode_outputs
+    assert encode_suffixes[paths.bass_only_m4a] == "(Bass Only)"
+    assert encode_suffixes[paths.remix_m4a] is None
+
+
+def test_run_pipeline_passes_lowpass_through(monkeypatch, tmp_path):
+    """run_pipeline forwards the caller's lowpass value (including None) to extract."""
+    input_mp3 = tmp_path / "tracks" / "Band" / "02_Song.mp3"
+    input_mp3.parent.mkdir(parents=True)
+    input_mp3.touch()
+
+    paths = resolve_paths(input_mp3)
+    received = {}
+
+    def fake_extract_bass(
+        input_path,
+        output=None,
+        lowpass=DEFAULT_LOWPASS,
+        slice_spec=None,
+        cut_inputs=True,
+        force=False,
+    ):
+        received["lowpass"] = lowpass
+        return paths.bass
+
+    def fake_detect_windows(
+        bass_path,
+        output=None,
+        threshold=-40.0,
+        min_gap=1.0,
+        pad_start=0.0,
+        pad_end=-0.05,
+        min_riff=0.5,
+        slice_spec=None,
+        force=False,
+        original_path=None,
+        drop_trailing=True,
+    ):
+        return paths.windows
+
+    def fake_combine_track(
+        bass_path,
+        original_path,
+        windows_path,
+        output=None,
+        slice_spec=None,
+        force=False,
+    ):
+        return paths.bass_only
+
+    def fake_remix_track(combined_path, original_path, output=None, slice_spec=None, force=False):
+        return paths.remix
+
+    def fake_encode_track(wav_path, original_path, output=None, force=False, title_suffix=None):
+        pass
+
+    import bassify.pipeline as pipeline_mod
+
+    monkeypatch.setattr(pipeline_mod, "extract_bass", fake_extract_bass)
+    monkeypatch.setattr(pipeline_mod, "detect_windows", fake_detect_windows)
+    monkeypatch.setattr(pipeline_mod, "combine_track", fake_combine_track)
+    monkeypatch.setattr(pipeline_mod, "remix_track", fake_remix_track)
+    monkeypatch.setattr(pipeline_mod, "encode_track", fake_encode_track)
+
+    from bassify.pipeline import run_pipeline
+
+    # default lowpass (DEFAULT_LOWPASS)
+    run_pipeline(input_mp3)
+    assert received["lowpass"] == DEFAULT_LOWPASS
+
+    # explicit None (no-lowpass)
+    run_pipeline(input_mp3, lowpass=None)
+    assert received["lowpass"] is None
+
+    # custom value
+    run_pipeline(input_mp3, lowpass=500.0)
+    assert received["lowpass"] == 500.0
+
+
+# ---------------------------------------------------------------------------
+# run_batch tests
+# ---------------------------------------------------------------------------
+
+
+def _make_batch_dir(tmp_path):
+    """Create a tmp dir with audio source files, a .txt, and a subdir (which must be ignored).
+
+    Source files picked up: .mp3, .m4a, .flac (all in _SOURCE_GLOBS).
+    Ignored: .txt, subdirectory entries.
+    """
+    d = tmp_path / "tracks" / "Band"
+    d.mkdir(parents=True)
+    mp3a = d / "01_Alpha.mp3"
+    m4a = d / "02_Bravo.m4a"
+    mp3b = d / "03_Charlie.mp3"
+    mp3a.touch()
+    m4a.touch()
+    mp3b.touch()
+    (d / "notes.txt").touch()
+    (d / "subdir").mkdir()  # directories must be ignored by glob
+    return d, sorted([mp3a, m4a, mp3b])
+
+
+def test_run_batch_calls_pipeline_per_source_file_sorted(monkeypatch, tmp_path):
+    """run_batch calls run_pipeline once per audio file in sorted order; skips .txt and subdirs."""
+    batch_dir, source_tracks = _make_batch_dir(tmp_path)
+    called_with = []
+
+    def fake_run_pipeline(input_path, **kwargs):
+        called_with.append(Path(input_path))
+
+    import bassify.pipeline as pipeline_mod
+
+    monkeypatch.setattr(pipeline_mod, "run_pipeline", fake_run_pipeline)
+
+    from bassify.pipeline import run_batch
+
+    run_batch(batch_dir)
+
+    assert called_with == source_tracks
+    assert len(called_with) == 3  # 2 mp3 + 1 m4a; .txt and subdir excluded
+
+
+def test_run_batch_empty_dir_does_not_call_pipeline(monkeypatch, tmp_path):
+    """run_batch with no audio files prints a message and does NOT call run_pipeline."""
+    empty_dir = tmp_path / "empty"
+    empty_dir.mkdir()
+    (empty_dir / "notes.txt").touch()
+
+    called = []
+
+    def fake_run_pipeline(input_path, **kwargs):
+        called.append(input_path)
+
+    import bassify.pipeline as pipeline_mod
+
+    monkeypatch.setattr(pipeline_mod, "run_pipeline", fake_run_pipeline)
+
+    from bassify.pipeline import run_batch
+
+    run_batch(empty_dir)
+
+    assert called == []
+
+
+def test_run_batch_one_failure_does_not_stop_others(monkeypatch, tmp_path):
+    """A track that raises during run_pipeline is logged; remaining tracks still processed."""
+    d = tmp_path / "tracks" / "Band"
+    d.mkdir(parents=True)
+    tracks = [d / f"0{i}_Song.mp3" for i in range(1, 4)]
+    for t in tracks:
+        t.touch()
+
+    attempted = []
+
+    def fake_run_pipeline(input_path, **kwargs):
+        attempted.append(Path(input_path))
+        if Path(input_path) == tracks[1]:
+            raise RuntimeError("simulated ffmpeg failure")
+
+    import bassify.pipeline as pipeline_mod
+
+    monkeypatch.setattr(pipeline_mod, "run_pipeline", fake_run_pipeline)
+
+    from bassify.pipeline import run_batch
+
+    run_batch(d)  # must not raise
+
+    assert attempted == sorted(tracks)  # all 3 attempted
+    assert len(attempted) == 3
+
+
+# ---------------------------------------------------------------------------
+# CLI auto-detect dispatch tests
+# ---------------------------------------------------------------------------
+
+
+def test_cli_run_dispatches_to_run_batch_for_directory(monkeypatch, tmp_path):
+    """CLI `run` calls run_batch when the positional arg is a directory."""
+    from typer.testing import CliRunner
+
+    import bassify.cli as cli_mod
+    from bassify.cli import app
+
+    batch_called_with = []
+    pipeline_called_with = []
+
+    def fake_run_batch(input_dir, **kwargs):
+        batch_called_with.append(Path(input_dir))
+
+    def fake_run_pipeline(input_path, **kwargs):
+        pipeline_called_with.append(Path(input_path))
+
+    monkeypatch.setattr(cli_mod, "run_batch", fake_run_batch)
+    monkeypatch.setattr(cli_mod, "run_pipeline", fake_run_pipeline)
+
+    d = tmp_path / "tracks"
+    d.mkdir()
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["run", str(d)])
+
+    assert result.exit_code == 0, result.output
+    assert batch_called_with == [d]
+    assert pipeline_called_with == []
+
+
+def test_cli_run_dispatches_to_run_pipeline_for_file(monkeypatch, tmp_path):
+    """CLI `run` calls run_pipeline when the positional arg is a file."""
+    from typer.testing import CliRunner
+
+    import bassify.cli as cli_mod
+    from bassify.cli import app
+
+    batch_called_with = []
+    pipeline_called_with = []
+
+    def fake_run_batch(input_dir, **kwargs):
+        batch_called_with.append(Path(input_dir))
+
+    def fake_run_pipeline(input_path, **kwargs):
+        pipeline_called_with.append(Path(input_path))
+
+    monkeypatch.setattr(cli_mod, "run_batch", fake_run_batch)
+    monkeypatch.setattr(cli_mod, "run_pipeline", fake_run_pipeline)
+
+    f = tmp_path / "01_Song.mp3"
+    f.touch()
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["run", str(f)])
+
+    assert result.exit_code == 0, result.output
+    assert pipeline_called_with == [f]
+    assert batch_called_with == []
