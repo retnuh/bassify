@@ -57,16 +57,6 @@ def _detect_image_format(data: bytes) -> int:
     return MP4Cover.FORMAT_JPEG
 
 
-def _embed_covr(out: Path, art_data: bytes) -> None:
-    """Write the iTunes covr atom into an existing .m4a file using mutagen."""
-    from mutagen.mp4 import MP4, MP4Cover
-
-    fmt = _detect_image_format(art_data)
-    mp4 = MP4(str(out))
-    mp4["covr"] = [MP4Cover(art_data, imageformat=fmt)]
-    mp4.save()
-
-
 def encode_track(
     wav_path: Path,
     original_path: Path,
