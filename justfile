@@ -35,10 +35,14 @@ encode *ARGS:
 run *ARGS:
     uv run bassify run {{ARGS}}
 
-# Remove intermediate *.wav under out/ (pass --json to also remove *.json)
-clean-intermediates *FLAGS:
+# Remove generated scratch: *.wav under out/ + experiments scratch (pass --json to also remove out/*.json)
+clean *FLAGS:
     #!/usr/bin/env bash
     find out -type f -name '*.wav' -delete 2>/dev/null || true
+    # experiments scratch (gitignored generated files; leaves committed *.py prototypes)
+    find experiments -type f -name '*.wav' -delete 2>/dev/null || true
+    find experiments -type f -name '_*.txt' -delete 2>/dev/null || true
+    find experiments -type f -name 'CHECKPOINT_*' -delete 2>/dev/null || true
     if echo "{{FLAGS}}" | grep -q -- --json; then
         find out -type f -name '*.json' -delete 2>/dev/null || true
     fi
