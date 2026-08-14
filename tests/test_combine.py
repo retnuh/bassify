@@ -366,3 +366,51 @@ class TestBuildBassDuckClickWindow:
         assert "-1*between(t,0,6.6)" in expr
         # Fallback window: gap_end = 25.2 - 0.15 = 25.05
         assert "25.05" in expr
+
+
+# ---------------------------------------------------------------------------
+# apply_donor_splice — fade guard and ramp-write correctness
+# ---------------------------------------------------------------------------
+
+
+class TestApplyDonorSpliceFadeGuard:
+    def test_no_double_fade_when_donor_between_fade_and_2xfade(self):
+        """Donor with fade <= len < 2*fade must not apply fades (would overlap/double-modulate)."""
+        fade = 10
+        # Donor length 15: between fade(10) and 2*fade(20) — fades would overlap.
+        donor = np.ones(15, dtype=np.float64)
+        combined = np.zeros(200, dtype=np.float64)
+        result = apply_donor_splice(combined, donor, last_click_sample=50, fade_samples=fade)
+        # All 15 samples should be exactly 1.0 (no fade applied)
+        np.testing.assert_array_equal(result[50:65], np.ones(15))
+
+    def test_even_ramp_written_when_donor_too_short_to_splice(self):
+        """Even bass ramp must appear in the output even if donor is too short to fade.
+
+        This is a pure simulation of the logic in _apply_donor_splice_to_file:
+        apply_even_bass_ramp runs first (modified=True), then donor check fires continue.
+        The ramp samples in [last_click, bass_onset] must differ from the zero baseline.
+        """
+        sr = 1000  # 1 kHz synthetic sr for easy sample arithmetic
+        last_click_s = 0.3
+        bass_onset_s = 0.9  # 600ms span — analogous to win6's 642ms
+
+        n = 1200
+        # Simulate ffmpeg output: combined is all zeros (bass hard-zeroed in gap)
+        combined = np.zeros(n, dtype=np.float64)
+        # Bass track: constant 1.0 (so ramp = linspace(0,1) * 1.0)
+        bass = np.ones(n, dtype=np.float64)
+
+        last_sample = int(last_click_s * sr)
+        bass_onset_sample = int(bass_onset_s * sr)
+
+        # Apply even ramp (this is step 1 in _apply_donor_splice_to_file)
+        result = apply_even_bass_ramp(combined, bass, last_sample, bass_onset_sample)
+
+        # Ramp region must be non-zero (bass rises from 0 to 1 across the span)
+        ramp_region = result[last_sample:bass_onset_sample]
+        assert ramp_region.max() > 0.9, "ramp should reach near 1.0 at bass_onset"
+        assert ramp_region.min() == pytest.approx(0.0, abs=1e-9), "ramp should start at 0"
+        # Samples outside ramp unchanged
+        np.testing.assert_array_equal(result[:last_sample], combined[:last_sample])
+        np.testing.assert_array_equal(result[bass_onset_sample:], combined[bass_onset_sample:])

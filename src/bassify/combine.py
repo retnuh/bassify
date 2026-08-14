@@ -203,11 +203,10 @@ def apply_donor_splice(
     out = combined.copy()
     d = donor.copy()
 
-    # Apply fade-in
-    if fade_samples > 0 and len(d) >= fade_samples:
+    # Apply fade-in and fade-out only when donor is long enough that the two fade
+    # regions do not overlap (each fade must fit without touching the other).
+    if fade_samples > 0 and len(d) >= 2 * fade_samples:
         d[:fade_samples] *= np.linspace(0.0, 1.0, fade_samples)
-    # Apply fade-out
-    if fade_samples > 0 and len(d) >= fade_samples:
         d[-fade_samples:] *= np.linspace(1.0, 0.0, fade_samples)
 
     # Add donor (purely additive — bass ramp already applied by apply_even_bass_ramp)
@@ -326,8 +325,11 @@ def _apply_donor_splice_to_file(
         last_sample = int(last_click * sr)
         bass_onset_sample = int(bass_onset * sr)
 
-        # Step 1: add even bass ramp [last_click, bass_onset] linspace(0,1)
+        # Step 1: add even bass ramp [last_click, bass_onset] linspace(0,1).
+        # The ramp itself is a file-modifying operation — mark modified now so that
+        # even if the donor is too short to splice, the ramp is still written back.
         combined = apply_even_bass_ramp(combined, yb, last_sample, bass_onset_sample)
+        modified = True
 
         # Step 2: extract donor from original at prev_click onset
         donor_end = min(prev_sample + donor_len_samples, len(yo))
@@ -336,12 +338,11 @@ def _apply_donor_splice_to_file(
         donor = yo[prev_sample:donor_end].copy()
 
         if len(donor) < 2 * fade_samples:
-            # Donor too short to fade cleanly — skip donor but keep the ramp
+            # Donor too short to fade cleanly — skip donor, but ramp is already marked.
             continue
 
         # Step 3: splice donor at last_click (additive on top of the ramp)
         combined = apply_donor_splice(combined, donor, last_sample, fade_samples)
-        modified = True
 
     if modified:
         sf.write(str(out_path), combined, sr, subtype="PCM_24")
