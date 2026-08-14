@@ -3,7 +3,6 @@
 cutoff into the bass-only region.
 """
 
-import json
 import subprocess
 
 BASS = "out/BluesBass/03_Turnarounds/bass.wav"

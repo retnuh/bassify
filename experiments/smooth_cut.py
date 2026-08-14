@@ -6,7 +6,6 @@ B) crossfade: original fades out over the last F ms before cutoff, while the
    bass is briefly boosted so total loudness stays continuous.
 """
 
-import json
 import subprocess
 
 BASS = "out/BluesBass/03_Turnarounds/bass.wav"

@@ -58,7 +58,7 @@
     {
       "id": 6,
       "subject": "Task 6: remix stage + CLI",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [
         1,
         2
@@ -68,7 +68,7 @@
     {
       "id": 7,
       "subject": "Task 7: encode stage + CLI",
-      "status": "pending",
+      "status": "completed",
       "blockedBy": [
         2
       ],
@@ -106,5 +106,5 @@
       "description": "**Goal:** **USER-ORDERED GATE \u2014 NON-SKIPPABLE.** This task was requested by the user in the current conversation. It MUST NOT be closed by walking around it, by declaring it \"verified inline\", or by substituting a cheaper check. Close only after every item in `acceptanceCriteria` has been re-validated independently, with output captured.\n\nRun the pipeline against a real `tracks/BluesBass/` track and walk the user through listening/inspecting each stage.\n\n**Files:**\n- None (verification only).\n\n**Acceptance Criteria:**\n- [ ] `bassify run \"tracks/BluesBass/01_The Twelve Bar Blues Form.mp3\" --duration 30` exits 0 and produces all six `_d30s` artifacts under `out/BluesBass/01_The Twelve Bar Blues Form/`. Capture output + `ls`.\n- [ ] extract: user confirms bass isolated/clean, records `--lowpass` decision.\n- [ ] detect: user confirms windows land on real gaps; records threshold/min-gap change.\n- [ ] combine: user confirms speech placement, no clicks, no 6 dB drop.\n- [ ] remix: user confirms balance sweep + channel alignment.\n- [ ] encode: ffprobe shows AAC + attached_pic + tags; user confirms playback.\n\n**Verify:** `uv run bassify run \"tracks/BluesBass/01_The Twelve Bar Blues Form.mp3\" --duration 30 --force` \u2192 exit 0; then `ffprobe -hide_banner` on the combined .m4a shows AAC + attached_pic + metadata. User verbally confirms each per-stage criterion.\n\n```json:metadata\n{\"files\": [], \"verifyCommand\": \"uv run bassify run \\\"tracks/BluesBass/01_The Twelve Bar Blues Form.mp3\\\" --duration 30 --force\", \"acceptanceCriteria\": [\"run exits 0 + six _d30s artifacts\", \"extract confirmed + lowpass recorded\", \"detect windows on real gaps\", \"combine placement no clicks/drop\", \"remix balance + alignment\", \"encode ffprobe AAC+attached_pic+tags + playback\"], \"userGate\": true, \"tags\": [\"user-gate\"], \"requireEvidenceTokens\": [[\"exit 0\", \"artifacts\"], [\"ffprobe\", \"attached_pic\"]], \"modelTier\": \"frontier\"}\n```"
     }
   ],
-  "lastUpdated": "2026-08-13"
+  "lastUpdated": "2026-08-14"
 }

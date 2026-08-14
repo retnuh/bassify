@@ -5,9 +5,9 @@ onset. Cut just before it.
 """
 
 import json
+import warnings
 
 import librosa
-import warnings
 
 warnings.filterwarnings("ignore")
 

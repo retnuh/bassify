@@ -9,7 +9,6 @@ downbeat (which coincides with bass onset / window end) is excluded.
 import json
 
 import librosa
-import numpy as np
 
 BASS = "out/BluesBass/03_Turnarounds/bass.wav"
 WINS = json.load(open("out/BluesBass/03_Turnarounds/windows.json"))
