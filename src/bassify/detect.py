@@ -6,7 +6,6 @@ from pathlib import Path
 
 from bassify.countin import refine_window_full
 from bassify.ffmpeg import ffprobe_duration, run_ffmpeg_capture, should_skip
-from bassify.paths import resolve_paths
 from bassify.slice import SliceSpec
 
 _START = re.compile(r"silence_start:\s*([0-9.]+)")
@@ -106,7 +105,6 @@ def drop_trailing_window(
 
 def detect_windows(
     bass_path: Path,
-    original_for_naming: Path | None = None,
     output: Path | None = None,
     threshold: float = -40.0,
     min_gap: float = 1.0,
@@ -121,8 +119,8 @@ def detect_windows(
 ) -> Path:
     """Run silencedetect on the bass track, write windows JSON. Returns output path.
 
-    `original_for_naming` lets `run` place the JSON in the track dir keyed off the
-    original input name; when None the bass_path stem is used for naming.
+    `output` sets the JSON path explicitly; when None the bass_path stem is used
+    for naming.
 
     `original_path` enables count-in click cutoff refinement: each window's end
     is refined to sit just after the last count-in click, before the downbeat.
@@ -135,8 +133,6 @@ def detect_windows(
     spec = slice_spec or SliceSpec()
     if output is not None:
         out = output
-    elif original_for_naming is not None:
-        out = resolve_paths(original_for_naming, slice_spec=spec).windows
     else:
         out = bass_path.with_name(bass_path.stem + "_silence_windows.json")
     out.parent.mkdir(parents=True, exist_ok=True)

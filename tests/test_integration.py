@@ -135,3 +135,25 @@ def test_full_pipeline_slice_artifacts(tmp_path: Path, monkeypatch: pytest.Monke
     for artifact in artifacts:
         assert artifact.exists(), f"missing artifact: {artifact}"
         assert suffix in artifact.name, f"expected '{suffix}' in '{artifact.name}'"
+
+
+@pytest.mark.skipif(ffmpeg_missing, reason=skip_reason)
+def test_full_pipeline_length_invariant(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """No-slice run_pipeline: bass_only must equal the bass frame count exactly.
+
+    This is the production path (no --duration/--start). The length invariant
+    underpins remix channel pairing and future video sync. The sliced-preview
+    path is a known post-V1 limitation and is intentionally not asserted here.
+    """
+    monkeypatch.chdir(tmp_path)
+
+    src = tmp_path / "Coll" / "track.wav"
+    _make_source(src)
+
+    run_pipeline(src, force=True)
+
+    p = resolve_paths(src)
+    with wave.open(str(p.bass), "rb") as wb, wave.open(str(p.bass_only), "rb") as wc:
+        assert wc.getnframes() == wb.getnframes(), (
+            f"length invariant broken: bass_only {wc.getnframes()} != bass {wb.getnframes()}"
+        )

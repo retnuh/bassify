@@ -271,10 +271,3 @@ def refine_window_full(
     )
 
     return {"cutoff": cutoff, "last_click": last_click, "prev_click": prev_click}
-
-
-# ---------------------------------------------------------------------------
-# Backward-compat alias (detect.py previously called refine_window_end)
-# ---------------------------------------------------------------------------
-
-refine_window_end = refine_window
