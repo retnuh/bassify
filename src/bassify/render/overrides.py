@@ -12,7 +12,7 @@ def load_overrides(collection: str, data_dir: Path = Path("data")) -> dict:
         return {}
     try:
         doc = yaml.safe_load(path.read_text()) or {}
-    except yaml.YAMLError:
+    except (yaml.YAMLError, OSError):
         return {}
     ov = doc.get("overrides") if isinstance(doc, dict) else None
     return ov if isinstance(ov, dict) else {}

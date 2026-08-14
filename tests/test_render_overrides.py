@@ -32,3 +32,18 @@ def test_absent_track_is_empty(tmp_path: Path):
 def test_empty_yaml_is_empty(tmp_path: Path):
     _write(tmp_path, "C.yaml", "")
     assert load_overrides("C", data_dir=tmp_path) == {}
+
+
+def test_malformed_yaml_is_empty(tmp_path: Path):
+    _write(tmp_path, "Bad.yaml", ": [invalid")
+    assert load_overrides("Bad", data_dir=tmp_path) == {}
+
+
+def test_overrides_non_dict_is_empty(tmp_path: Path):
+    _write(tmp_path, "NonDict.yaml", "overrides:\n  - 1\n  - 2")
+    assert load_overrides("NonDict", data_dir=tmp_path) == {}
+
+
+def test_track_entry_non_dict_is_empty(tmp_path: Path):
+    _write(tmp_path, "Entry.yaml", 'overrides:\n  "01_a": just-a-string')
+    assert get_override("Entry", "01_a", data_dir=tmp_path) == {}
