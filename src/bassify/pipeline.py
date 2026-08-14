@@ -72,6 +72,47 @@ def run_pipeline(
 _SOURCE_GLOBS = ("*.mp3", "*.m4a", "*.flac", "*.wav", "*.aac", "*.ogg")
 
 
+def _collect_tracks(input_dir: Path) -> list[Path]:
+    """Sorted, de-duped source audio files directly in input_dir (non-recursive)."""
+    tracks: list[Path] = []
+    for pattern in _SOURCE_GLOBS:
+        tracks.extend(input_dir.glob(pattern))
+    return sorted(set(tracks))
+
+
+def extract_batch(
+    input_dir: Path,
+    lowpass: float | None = DEFAULT_LOWPASS,
+    slice_spec: SliceSpec | None = None,
+    force: bool = False,
+) -> None:
+    """Run only the extract stage on every source track in input_dir (non-recursive).
+
+    Handy for regenerating bass.wav files after `just clean` removed the WAV
+    intermediates. Outputs go to out/<collection>/<track>/. A failure on one
+    track is printed and skipped.
+    """
+    input_dir = Path(input_dir)
+    tracks = _collect_tracks(input_dir)
+    if not tracks:
+        print(f"batch: no audio files found in {input_dir}")
+        return
+
+    total = len(tracks)
+    ok = 0
+    failed = 0
+    for i, track in enumerate(tracks, 1):
+        print(f"[{i}/{total}] extracting {track.name}")
+        try:
+            extract_bass(track, lowpass=lowpass, slice_spec=slice_spec, force=force)
+            ok += 1
+        except Exception as exc:  # noqa: BLE001
+            print(f"  ERROR extracting {track.name}: {exc}")
+            failed += 1
+
+    print(f"extract batch done: {ok} ok, {failed} failed")
+
+
 def run_batch(
     input_dir: Path,
     lowpass: float | None = DEFAULT_LOWPASS,
@@ -87,10 +128,7 @@ def run_batch(
     Tracks are processed in sorted order; a failure on one track is printed and skipped.
     """
     input_dir = Path(input_dir)
-    tracks: list[Path] = []
-    for pattern in _SOURCE_GLOBS:
-        tracks.extend(input_dir.glob(pattern))
-    tracks = sorted(set(tracks))
+    tracks = _collect_tracks(input_dir)
 
     if not tracks:
         print(f"batch: no audio files found in {input_dir}")

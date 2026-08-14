@@ -10,7 +10,7 @@ from bassify import detect as detect_mod
 from bassify import encode as encode_mod
 from bassify import extract as extract_mod
 from bassify import remix as remix_mod
-from bassify.pipeline import run_batch, run_pipeline
+from bassify.pipeline import extract_batch, run_batch, run_pipeline
 from bassify.slice import SliceSpec
 
 DurationOpt = Annotated[
@@ -46,12 +46,20 @@ def extract(
     start: StartOpt = None,
     force: Annotated[bool, typer.Option("--force", help="Overwrite existing output.")] = False,
 ) -> None:
-    """L-R subtraction -> mono bass WAV."""
+    """L-R subtraction -> mono bass WAV.
+
+    Pass a single audio file, or a directory to extract every audio file in it
+    (non-recursive, sorted, per-track error handling). Handy for regenerating
+    bass.wav files after `just clean`. With a directory, -o/--output is ignored.
+    """
     spec = SliceSpec(duration=duration, start=start)
     effective_lowpass = None if no_lowpass else lowpass
-    extract_mod.extract_bass(
-        input_path, output=output, lowpass=effective_lowpass, slice_spec=spec, force=force
-    )
+    if input_path.is_dir():
+        extract_batch(input_path, lowpass=effective_lowpass, slice_spec=spec, force=force)
+    else:
+        extract_mod.extract_bass(
+            input_path, output=output, lowpass=effective_lowpass, slice_spec=spec, force=force
+        )
 
 
 @app.command()
