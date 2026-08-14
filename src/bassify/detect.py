@@ -80,6 +80,30 @@ def parse_silences(
     return merged
 
 
+def drop_trailing_window(
+    windows: list[dict],
+    duration: float,
+    epsilon: float = 1.0,
+) -> list[dict]:
+    """Drop the last window if its silence reaches the track end.
+
+    Uses 'bass_onset' (the pre-refinement silence end) if present, else 'end'.
+    Rationale: after count-in refinement 'end' is the click cutoff, not the true
+    silence boundary; 'bass_onset' is the value that tells us whether the silence
+    ran all the way to the end of the track.
+
+    Only the last window is ever considered; earlier windows are untouched.
+    Returns a new list (original is not mutated).
+    """
+    if not windows:
+        return windows
+    last = windows[-1]
+    trailing_end = last.get("bass_onset", last["end"])
+    if trailing_end >= duration - epsilon:
+        return windows[:-1]
+    return windows
+
+
 def detect_windows(
     bass_path: Path,
     original_for_naming: Path | None = None,
@@ -93,6 +117,7 @@ def detect_windows(
     cut_inputs: bool = True,
     force: bool = False,
     original_path: Path | None = None,
+    drop_trailing: bool = True,
 ) -> Path:
     """Run silencedetect on the bass track, write windows JSON. Returns output path.
 
@@ -102,6 +127,10 @@ def detect_windows(
     `original_path` enables count-in click cutoff refinement: each window's end
     is refined to sit just after the last count-in click, before the downbeat.
     When None (default), behaviour is unchanged.
+
+    `drop_trailing`: when True (default), the final window is dropped if its silence
+    end reaches the track end (within 1.0 s). This removes the typical end-of-track
+    fade/silence that is not a count-in gap.
     """
     spec = slice_spec or SliceSpec()
     if output is not None:
@@ -152,6 +181,9 @@ def detect_windows(
                 entry["prev_click"] = info["prev_click"]
             refined.append(entry)
         windows = refined
+
+    if drop_trailing:
+        windows = drop_trailing_window(windows, duration)
 
     out.write_text(json.dumps(windows, indent=2))
     print(f"wrote {len(windows)} windows -> {out}")

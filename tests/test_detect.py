@@ -1,6 +1,6 @@
 import pytest
 
-from bassify.detect import parse_silences
+from bassify.detect import drop_trailing_window, parse_silences
 
 SAMPLE = """
 [silencedetect @ 0x1] silence_start: 12.284
@@ -180,3 +180,94 @@ def test_min_riff_zero_disables_merge():
     """min_riff=0 must disable the merge: close windows stay separate."""
     w = parse_silences(MIN_RIFF_CLOSE, duration=30.0, pad_start=0.0, pad_end=0.0, min_riff=0)
     assert len(w) == 2, f"expected 2 windows with min_riff=0, got {len(w)}: {w}"
+
+
+# ---------------------------------------------------------------------------
+# drop_trailing_window tests
+# ---------------------------------------------------------------------------
+
+
+def test_drop_trailing_window_drops_last_when_end_near_duration():
+    """Last window whose end is within epsilon of duration must be dropped."""
+    windows = [
+        {"start": 10.0, "end": 20.0},
+        {"start": 55.0, "end": 60.0},  # end == duration
+    ]
+    result = drop_trailing_window(windows, duration=60.0, epsilon=1.0)
+    assert len(result) == 1
+    assert result[0]["end"] == pytest.approx(20.0)
+
+
+def test_drop_trailing_window_keeps_last_when_end_far_from_duration():
+    """Last window whose end is well before duration must NOT be dropped."""
+    windows = [
+        {"start": 10.0, "end": 20.0},
+        {"start": 40.0, "end": 50.0},  # 10s before duration=60
+    ]
+    result = drop_trailing_window(windows, duration=60.0, epsilon=1.0)
+    assert len(result) == 2
+
+
+def test_drop_trailing_window_uses_bass_onset_when_present():
+    """When 'bass_onset' is present (post-refinement window), use it for the trailing test."""
+    # end (cutoff) is 55.0, but bass_onset (true silence end) is 59.5 — near 60.0
+    windows = [
+        {"start": 10.0, "end": 20.0},
+        {"start": 55.0, "end": 57.0, "bass_onset": 59.5},
+    ]
+    result = drop_trailing_window(windows, duration=60.0, epsilon=1.0)
+    assert len(result) == 1, "last window should be dropped because bass_onset is near duration"
+    assert result[0]["end"] == pytest.approx(20.0)
+
+
+def test_drop_trailing_window_refined_window_kept_when_bass_onset_far():
+    """Refined window whose bass_onset is well before duration must be kept."""
+    windows = [
+        {"start": 10.0, "end": 20.0},
+        {"start": 40.0, "end": 45.0, "bass_onset": 50.0},  # 10s before duration=60
+    ]
+    result = drop_trailing_window(windows, duration=60.0, epsilon=1.0)
+    assert len(result) == 2
+
+
+def test_drop_trailing_window_empty_list():
+    """Empty window list must be returned unchanged."""
+    result = drop_trailing_window([], duration=60.0, epsilon=1.0)
+    assert result == []
+
+
+def test_drop_trailing_window_single_window_near_duration():
+    """A single window near duration must be dropped, leaving an empty list."""
+    windows = [{"start": 58.0, "end": 60.0}]
+    result = drop_trailing_window(windows, duration=60.0, epsilon=1.0)
+    assert result == []
+
+
+def test_drop_trailing_window_single_window_far_from_duration():
+    """A single window well before duration must be kept."""
+    windows = [{"start": 10.0, "end": 20.0}]
+    result = drop_trailing_window(windows, duration=60.0, epsilon=1.0)
+    assert len(result) == 1
+
+
+def test_drop_trailing_window_does_not_mutate_input():
+    """drop_trailing_window must not mutate the original list."""
+    windows = [
+        {"start": 10.0, "end": 20.0},
+        {"start": 58.0, "end": 60.0},
+    ]
+    original_len = len(windows)
+    drop_trailing_window(windows, duration=60.0, epsilon=1.0)
+    assert len(windows) == original_len, "original list must not be mutated"
+
+
+def test_drop_trailing_window_only_last_window_considered():
+    """Earlier windows near duration boundaries must not be dropped."""
+    # Second window ends at 60.0 (near duration=65), but it's not last
+    windows = [
+        {"start": 10.0, "end": 60.0},  # near duration but NOT last
+        {"start": 62.0, "end": 63.0},  # last, 2s before duration=65 — kept
+    ]
+    result = drop_trailing_window(windows, duration=65.0, epsilon=1.0)
+    # Last window is 2s before duration, so not dropped
+    assert len(result) == 2

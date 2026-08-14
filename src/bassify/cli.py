@@ -90,6 +90,13 @@ def detect(
             help="Original mix; when given, refine each window end to sit just after the count-in, before the downbeat.",  # noqa: E501
         ),
     ] = None,
+    keep_trailing: Annotated[
+        bool,
+        typer.Option(
+            "--keep-trailing",
+            help="Keep the final end-of-track silence window (normally dropped).",
+        ),
+    ] = False,
     duration: DurationOpt = None,
     start: StartOpt = None,
     force: Annotated[bool, typer.Option("--force", help="Overwrite existing output.")] = False,
@@ -107,6 +114,7 @@ def detect(
         slice_spec=spec,
         force=force,
         original_path=count_in_original,
+        drop_trailing=not keep_trailing,
     )
 
 
