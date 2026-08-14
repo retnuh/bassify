@@ -61,14 +61,20 @@ def resolve_render_inputs(bass_only_m4a: Path) -> Path:
     return bass_wav
 
 
-def _out_paths(bass_only_m4a: Path) -> dict[str, Path]:
+def _stem_and_suffix(bass_only_m4a: Path) -> tuple[str, str]:
+    """Return (base stem without _bass_only or slice suffix, slice suffix)."""
     from bassify.slice import SliceSpec
 
-    d = bass_only_m4a.parent
     sfx = SliceSpec.from_filename(bass_only_m4a).suffix()
     stem = bass_only_m4a.stem.replace("_bass_only", "")
     if sfx and stem.endswith(sfx):
         stem = stem[: -len(sfx)]
+    return stem, sfx
+
+
+def _out_paths(bass_only_m4a: Path) -> dict[str, Path]:
+    d = bass_only_m4a.parent
+    stem, sfx = _stem_and_suffix(bass_only_m4a)
 
     def p(kind: str, ext: str) -> Path:
         return d / f"{stem}_{kind}{sfx}.{ext}"
@@ -182,13 +188,7 @@ def render_track(
 def _source_stem(bass_only_m4a: Path) -> str:
     """The source track stem for sidecar lookup: strip _bass_only and any slice
     suffix so 'out/C/03_X/03_X_bass_only_d10s.m4a' -> '03_X'."""
-    from bassify.slice import SliceSpec
-
-    stem = bass_only_m4a.stem.replace("_bass_only", "")
-    sfx = SliceSpec.from_filename(bass_only_m4a).suffix()
-    if sfx and stem.endswith(sfx):
-        stem = stem[: -len(sfx)]
-    return stem
+    return _stem_and_suffix(bass_only_m4a)[0]
 
 
 def render_batch(directory: Path, **kwargs) -> None:
