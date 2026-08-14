@@ -10,6 +10,7 @@ from bassify import detect as detect_mod
 from bassify import encode as encode_mod
 from bassify import extract as extract_mod
 from bassify import remix as remix_mod
+from bassify.pipeline import run_pipeline
 from bassify.slice import SliceSpec
 
 DurationOpt = Annotated[
@@ -160,6 +161,45 @@ def encode(
 ) -> None:
     """Encode a WAV to AAC/.m4a with original metadata + cover art."""
     encode_mod.encode_track(wav_path, original_path, output=output, force=force)
+
+
+@app.command()
+def run(
+    input_path: Path,
+    lowpass: Annotated[
+        float,
+        typer.Option(
+            "--lowpass",
+            help="Low-pass cutoff Hz for extract (default: 800). Use --no-lowpass to disable.",
+        ),
+    ] = extract_mod.DEFAULT_LOWPASS,
+    no_lowpass: Annotated[
+        bool,
+        typer.Option(
+            "--no-lowpass", help="Disable the low-pass filter entirely (overrides --lowpass)."
+        ),  # noqa: E501
+    ] = False,
+    threshold: Annotated[
+        float, typer.Option("--threshold", help="silencedetect noise floor in dB.")
+    ] = -40.0,
+    min_gap: Annotated[
+        float, typer.Option("--min-gap", help="Minimum quiet run (s) to count as a gap.")
+    ] = 1.0,
+    duration: DurationOpt = None,
+    start: StartOpt = None,
+    force: Annotated[bool, typer.Option("--force", help="Overwrite existing output.")] = False,
+) -> None:
+    """Run the full pipeline: extract -> detect -> combine -> remix -> encode."""
+    spec = SliceSpec(duration=duration, start=start)
+    effective_lowpass = None if no_lowpass else lowpass
+    run_pipeline(
+        input_path,
+        lowpass=effective_lowpass,
+        threshold=threshold,
+        min_gap=min_gap,
+        slice_spec=spec,
+        force=force,
+    )
 
 
 if __name__ == "__main__":
