@@ -10,7 +10,7 @@ from bassify import detect as detect_mod
 from bassify import encode as encode_mod
 from bassify import extract as extract_mod
 from bassify import remix as remix_mod
-from bassify.pipeline import run_pipeline
+from bassify.pipeline import run_batch, run_pipeline
 from bassify.slice import SliceSpec
 
 DurationOpt = Annotated[
@@ -166,6 +166,10 @@ def encode(
 @app.command()
 def run(
     input_path: Path,
+    batch: Annotated[
+        bool,
+        typer.Option("--batch", help="Process every .mp3/.flac in INPUT_PATH (a directory)."),
+    ] = False,
     lowpass: Annotated[
         float,
         typer.Option(
@@ -189,17 +193,34 @@ def run(
     start: StartOpt = None,
     force: Annotated[bool, typer.Option("--force", help="Overwrite existing output.")] = False,
 ) -> None:
-    """Run the full pipeline: extract -> detect -> combine -> remix -> encode."""
+    """Run the full pipeline: extract -> detect -> combine -> remix -> encode.
+
+    Pass a single audio file, or use --batch with a directory to process all tracks in it.
+    """
     spec = SliceSpec(duration=duration, start=start)
     effective_lowpass = None if no_lowpass else lowpass
-    run_pipeline(
-        input_path,
-        lowpass=effective_lowpass,
-        threshold=threshold,
-        min_gap=min_gap,
-        slice_spec=spec,
-        force=force,
-    )
+    if batch:
+        if not input_path.is_dir():
+            raise typer.BadParameter(
+                f"{input_path} is not a directory (--batch requires a directory)"
+            )
+        run_batch(
+            input_path,
+            lowpass=effective_lowpass,
+            threshold=threshold,
+            min_gap=min_gap,
+            slice_spec=spec,
+            force=force,
+        )
+    else:
+        run_pipeline(
+            input_path,
+            lowpass=effective_lowpass,
+            threshold=threshold,
+            min_gap=min_gap,
+            slice_spec=spec,
+            force=force,
+        )
 
 
 if __name__ == "__main__":
