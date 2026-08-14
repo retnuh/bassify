@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from bassify.render.key import resolve_key, root_pc
+import numpy as np
+
+from bassify.render.key import detect_key, resolve_key, root_pc
 
 
 def test_root_pc_parsing():
@@ -49,3 +51,17 @@ def test_resolve_sidecar_null_forces_neutral():
 
 def test_resolve_falls_through_to_detect():
     assert resolve_key(None, {}, "b.wav", _detect=lambda p: 7) == 7
+
+
+def test_detect_key_silent_returns_none(monkeypatch):
+    """Silent audio (all-zero chroma) must return None, not a spurious pitch class."""
+    import librosa
+    import librosa.feature
+
+    monkeypatch.setattr(librosa, "load", lambda path, mono: (np.zeros(22050), 22050))
+    monkeypatch.setattr(
+        librosa.feature,
+        "chroma_cqt",
+        lambda y, sr: np.zeros((12, 10)),
+    )
+    assert detect_key("silent.wav") is None

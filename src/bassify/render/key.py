@@ -37,6 +37,8 @@ def detect_key(bass_wav: Path | str) -> int | None:
     if y.size == 0:
         return None
     chroma = librosa.feature.chroma_cqt(y=y, sr=sr).mean(axis=1)
+    if not chroma.any():
+        return None
 
     def best(profile: list[float]) -> tuple[float, int]:
         p = np.array(profile)
