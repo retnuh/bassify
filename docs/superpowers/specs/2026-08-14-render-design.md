@@ -14,17 +14,31 @@ pipeline (`extract`→`encode`) is assumed already built and its outputs present
 
 ## 1. Scope
 
+> **Note on process:** the concrete design below (frequency range, waveform
+> scaling, label styling, key-aware tiers, multi-key handling) was settled by
+> **prototyping on real tracks** — rendering short slices and looking at frames —
+> not by reasoning in the abstract. The proven prototypes live in
+> `experiments/render_proto/` and the exact ffmpeg/Pillow recipes they produced
+> are the source for the implementation. This spec records the *outcomes*.
+
 **In scope (V2):**
 - `render` — produce a 720p30 MP4: a constant-Q (`showcqt`) visualization framed
-  on the bass range, stacked over a whole-track waveform strip with a sweeping
-  playhead, with the track title and a small cover-art logo overlaid. Visuals are
-  driven by the clean `bass.wav`; the audio the viewer hears is `bass_only`.
+  on the bass range (default C2–C4), stacked over a whole-track waveform strip with
+  a sweeping playhead, with the track title and a small cover-art logo overlaid.
+  Visuals are driven by the clean `bass.wav`; the audio the viewer hears is
+  `bass_only`.
 - Three presets: `draft` (fast, bare CQT), `final` (the deliverable), `still`
   (full-art loop for fast audio-mix checks).
 - A separate `<track>_thumbnail.png` (full cover art with burned-in track number,
   name, and artist) for use as the YouTube thumbnail.
-- Note-name axis labels on the CQT, generated as an `axisfile` PNG (Pillow) so the
-  labels stay crisp while the frequency range is framed tightly on the bass.
+- **Key-aware note labels** on the CQT, generated as an `axisfile` PNG (Pillow):
+  note names sized in three tiers by their role in the blues scale relative to the
+  track's root (root + blues-scale core big, ♭5 medium and red, passing tones
+  small). The key comes from `--key`, a committed per-collection overrides file,
+  or librosa auto-detection — in that precedence. A track with no resolvable key
+  (e.g. multi-key teaching tracks) falls back to neutral equal-weight labels.
+- A committed **overrides sidecar** (`data/<collection>.yaml`) so key corrections
+  (from the course book) are durable, reviewable project data, not remembered flags.
 - CLI `render` command accepting a single `bass_only.m4a` (error fast if the
   co-located `bass.wav` is missing) or a directory (render only the `bass_only.m4a`
   files that have a co-located `bass.wav`; skip the rest).
@@ -40,6 +54,19 @@ pipeline (`extract`→`encode`) is assumed already built and its outputs present
   below CQT+waveform; vectorscope is useless for mono bass).
 - 1080p/4K as the default (available via `--res`, but 720p30 is the default).
 - Burning captions / chord charts / lyrics into the video.
+- **Per-note CQT colors** (a distinct hue per pitch class across the whole plot)
+  and **played-note glow** (a per-frame highlight of the active pitch, needing
+  pitch tracking + an animated overlay). Both are documented stretch goals.
+- **Multi-key segment stitching + per-window key detection** — several of these
+  are teaching tracks that cycle through keys (e.g. 26 "Intros From The Five", 27
+  "Intros From The Four": time-windowed detection on 27 showed A→G→C→F♯→C). A
+  future version could (a) auto-detect key per time window instead of
+  whole-track, and (b) render such a track as consecutive key-specific segments,
+  each with its own axis/tiers, concatenated into one video — with an optional
+  brief key-change caption at each boundary. The overrides schema is deliberately
+  left extensible for a `segments: [{start, end, key}]` form. V2 renders these
+  tracks with neutral (keyless) labels, which is correct when no single key
+  applies. This is a real, scoped follow-on, not a vague wish.
 
 ## 2. Inputs and prerequisites
 
@@ -110,41 +137,46 @@ builder — so it is split by responsibility rather than crammed into one module
 
 ```
 src/bassify/render/
-  __init__.py      render_track()  — public orchestrator
+  __init__.py      render_track() + render_batch()  — public orchestrators
   metadata.py      TrackMeta + parse: number (filename), name/artist (tags)
-  labels.py        build_axis_strip() → RGBA axisfile PNG (Pillow)   [#1 risk]
-  thumbnail.py     build_thumbnail() → full-art + burned title PNG
+  key.py           detect_key() (librosa Krumhansl) + resolve_key() (precedence)
+  overrides.py     load_overrides()/get_override() — read data/<collection>.yaml
+  labels.py        note_tier() + build_axis_strip() → RGBA axisfile PNG (Pillow) [#1 risk]
+  thumbnail.py     build_thumbnail() → full-art + burned title PNG (Pillow)
   waveform.py      render_waveform_pic() → whole-track showwavespic PNG (ffmpeg)
-  filtergraph.py   build_filtergraph(preset, inputs) → str  (pure; no subprocess)
+  filtergraph.py   build_full_args()/build_still_args() → ffmpeg args (pure; no subprocess)
   presets.py       PRESETS: draft / final / still  (frozen knob bundles)
-  fonts/           bundled default TTF (OFL/Apache) as a package resource
+  fonts/           bundled default TTF (permissive license) as a package resource
 ```
 
 **Boundaries (each unit testable in isolation):**
 - `filtergraph.py` is **pure string-building** — given a preset and resolved input
-  paths/dimensions it returns the `-filter_complex` text. No ffmpeg call. The
-  research's most error-prone details (per-branch `format=yuv420p`, `asplit`, even
-  dimensions, `-map 1:a`, the overlay playhead x-formula) live here where fast
-  unit tests can assert them.
-- `labels.py` takes `(basefreq, endfreq, width, axis_h)` and returns a PNG. Its
-  x-position formula is the single biggest flagged risk; it is unit-tested against
-  hand-computed note positions **without rendering any video**.
+  paths/dimensions it returns the ffmpeg arg list. No ffmpeg call. The research's
+  most error-prone details (per-branch `format=yuv420p`, even dimensions,
+  `-map 1:a`, the overlay playhead x-formula, `-shortest` bounding the looped
+  image) live here where fast unit tests can assert them.
+- `labels.py` `note_x` (the frequency→x formula, the single biggest flagged risk)
+  and `note_tier` (the blues-scale sizing) are pure and unit-tested **without
+  rendering any video**; `build_axis_strip` composes them into the PNG.
+- `key.py` `resolve_key` (precedence logic) is pure and unit-tested; `detect_key`
+  (librosa) is exercised in an integration test.
 - All Pillow code (`labels`, `thumbnail`) is isolated from all ffmpeg code
   (`waveform`, the main render in `__init__`).
 
-**Data flow — `render_track(bass_only_m4a, preset, slice_spec, overrides, ...)`:**
+**Data flow — `render_track(bass_only_m4a, preset, *, key=None, ...)`:**
 
 ```
 1. resolve inputs   → bass_only.m4a (arg), co-located bass.wav; error if wav absent
 2. metadata.parse() → TrackMeta(number ← filename, name/artist ← m4a tags)
-3. pre-passes (only those the preset needs):
-     extract covr from bass_only.m4a → <track>_cover.png  (logo + thumbnail + still bg)
-     labels.build_axis_strip()       → <track>_axis.png   (final only)
-     waveform.render_waveform_pic()  → <track>_wave.png   (final/draft; not still)
-4. thumbnail.build_thumbnail()       → <track>_thumbnail.png   (always)
-5. filtergraph.build_filtergraph()   → -filter_complex string for the preset
-6. run ffmpeg → <track>_render.mp4   (or <track>_render_still.mp4)
-     visuals ← bass.wav input, audio ← bass_only.m4a input (-map)
+3. resolve key      → key.resolve_key(--key, sidecar, detect(bass.wav)); may be None
+4. pre-passes (only those the preset needs):
+     extract covr from bass_only.m4a → <track>_cover.jpg  (logo + thumbnail + still bg)
+     labels.build_axis_strip(root_pc) → <track>_axis.png  (final only; root_pc None → neutral)
+     waveform.render_waveform_pic()   → <track>_wave.png  (final/draft; scale=cbrt; not still)
+5. thumbnail.build_thumbnail()        → <track>_thumbnail.png   (always)
+6. filtergraph.build_*_args()         → ffmpeg args for the preset
+7. run ffmpeg → <track>_render.mp4    (or <track>_render_still.mp4)
+     visuals ← bass.wav input (0), audio ← bass_only.m4a input (1, -map 1:a)
      progress streamed to the user
 ```
 
@@ -164,30 +196,39 @@ needed.
 
 ```
 ┌───────────────────────────────┐
-│ [logo]  03  Turnarounds        │  drawtext (title) + overlay (corner art)
+│ [logo]  01  The Twelve Bar…    │  drawtext (title) + overlay (corner art)
 │                                │
-│      showcqt (bass range)      │  bass-framed CQT, axisfile note labels
+│      showcqt (bass range)      │  bass-framed CQT (default C2–C4), 640px tall
 │      ▂▄█▆▄▂                     │
-│   E1  A1  E2  A2  E3  A3  E4    │
+│  E2  G2  A2 A♯2 B2  D3 E3 …     │  48px axisfile: key-aware tiered note labels
 ├───────────────────────────────┤
-│ ▁▂▃▅▇▅▃▂▁ │ ▂▃▁  waveform      │  showwavespic still + sweeping playhead line
+│ ▁▂▃▅▇▅▃▂▁ │ ▂▃▁  waveform      │  80px showwavespic (scale=cbrt) + playhead
 └───────────────────────────────┘
-              1280×720
+              1280×720  (CQT 640 + waveform 80)
 ```
 
 - **CQT + waveform** are two different filters, so they are genuinely stacked
   (`vstack`, identical widths, even heights, each `,format=yuv420p` before the
-  stack).
+  stack). The waveform strip is a **fixed 80px**; the CQT takes the remaining
+  640px. (A fixed strip beat autocrop for simplicity; bass is quiet so 80px is
+  ample once `scale=cbrt` fills it.)
+- **Axis labels** — a **48px** `axisfile` strip composited by showcqt (`axis_h=48`
+  passed so the PNG maps 1:1). Labels are sized in three tiers by their blues-scale
+  role relative to the root (see §7a): root + core big, ♭5 medium/red, passing
+  tones small. Every label carries a **black stroke outline** for contrast against
+  the bright CQT.
 - **Title** — `drawtext` overlaid on the dark top of the CQT. Non-trivial names
   are written to a temp `textfile=` to avoid filtergraph escaping issues, with a
   semi-transparent box for legibility.
-- **Corner logo** — cover art scaled small (~60px), semi-transparent, overlaid
-  top-corner.
-- **Waveform strip** — `showwavespic` renders the *whole track* as one static
-  image in a quick pre-pass (seconds), saved as `<track>_wave.png`. The main
-  render loops that PNG as the bottom strip and overlays a vertical playhead line
-  at `x = t/DUR*W` (`DUR` from `ffprobe`, shell-substituted; `t` is the runtime
-  overlay variable). One strip does waveform + progress together.
+- **Corner logo** — cover art scaled small (~80px), overlaid top-corner.
+- **Waveform strip** — `showwavespic` with **`scale=cbrt`** renders the *whole
+  track* as one static PNG in a quick pre-pass, saved as `<track>_wave.png`.
+  `scale=cbrt` is essential: bass amplitude is low and showwavespic maps amplitude
+  to height linearly, so a linear scale leaves a thin band in a mostly-black strip
+  (measured ~16px of 80); cube-root fills it (~46px). The main render loops that
+  PNG as the bottom strip and overlays a vertical playhead line at `x = t/DUR*W`
+  (`DUR` from `ffprobe`; `t` is the runtime overlay variable). One strip does
+  waveform + progress together.
 
 ## 5. Metadata
 
@@ -263,13 +304,77 @@ of the chosen preset.
 - `-movflags +faststart` (moov atom at front).
 - `-c:v libx264 -profile:v high`, closed GOP (`-g` = fps/2).
 - `-c:a aac -b:a 192k -ar 48000`.
-- CQT bass framing default `basefreq=36 endfreq=600` (~3.8 octaves, walking-bass).
+- CQT bass framing default `basefreq=65.41 endfreq=261.63` (C2–C4, where bass
+  fundamentals sit; refined from prototype review — most lines land C2–C4).
+- Waveform strip uses `showwavespic scale=cbrt` so quiet bass fills the strip
+  (linear scaling leaves a thin band in a mostly-black strip).
+- Axis labels: every semitone in the C2–C4 range (~25 notes fit), tiered by key
+  (see §7a). Per-note CQT colors and played-note glow are post-V2 stretch goals.
 - Visuals from `bass.wav`; audio from `bass_only`.
 
 `count` is a motion-smoothness knob (CQT recomputations per frame), independent of
 audio quality; 4 is ample for slowly-moving bass. `draft` drops the two
 slow/complex pieces (axisfile Pillow generation + waveform pre-pass + overlays) to
 render raw CQT quickly for checking freq range and framing.
+
+## 7a. Key-aware labels
+
+The axis labels are sized in three tiers by each note's role in the **blues scale**
+relative to the track's root pitch-class. Only the **root** matters — the
+major/minor quality is ignored, because blues is "minor-ish with a ♭5" and the
+scheme is honest to that regardless of the maj/min verdict.
+
+For a root at pitch-class `r`, a note at semitone offset `off = (pc - r) % 12`:
+
+| Tier | Offsets | Scale degrees | Style |
+|------|---------|---------------|-------|
+| **big** | 0, 3, 5, 7, 10 | 1, ♭3, 4, 5, ♭7 (blues/minor-pentatonic core) | large; root **gold** + octave, others **white** |
+| **medium** | 6 | ♭5 (the "blue note") | medium, **red** |
+| **small** | 1, 2, 4, 8, 9, 11 | chromatic passing tones | small, **grey** |
+
+When **no key resolves** (multi-key track, or detection declined), every note is
+drawn **big and white** — neutral, equal-weight labels. This is the correct look
+for a track with no single key (e.g. the "Intros" teaching tracks).
+
+**Key resolution precedence** (`key.resolve_key`):
+1. **`--key` flag** (e.g. `--key F`, `--key Bm`) — explicit, wins.
+2. **Overrides sidecar** `data/<collection>.yaml` — a committed entry for this
+   track (may set a key, or explicitly `null` to force neutral labels).
+3. **Auto-detection** — `key.detect_key(bass.wav)`: librosa `chroma_cqt` averaged
+   over the whole track, correlated against Krumhansl-Schmuckler major/minor
+   profiles; the best-correlating **root** is used.
+
+Only the root pitch-class flows into `note_tier`; a `--key Bm` and `--key B` size
+labels identically. Auto-detection is a good default but **does miss** — verified
+across all 43 BluesBass tracks: most are strong (r>0.75) and plausible, but e.g.
+19 "Walking Jazz Blues In F" auto-detects A min (A is the 3rd of F), and the
+"Intros" tracks are genuinely multi-key. Those corrections live in the sidecar.
+
+## 7b. Overrides sidecar
+
+`data/<collection>.yaml` is a **committed** file (one per collection;
+`<collection>` = the parent-dir name `resolve_paths` already derives) that records
+corrections (taken from the course book) so they are durable, diffable project
+data — not flags a user has to remember. It is keyed by the **full source track
+stem** for zero ambiguity:
+
+```yaml
+overrides:
+  "19_Walking Jazz Blues In F":
+    key: F          # auto-detect said A min; title/ear say F
+  "40_The Thrill Is Gone":
+    key: Bm         # famous B-minor tune; auto-detect said F# maj (its 5th)
+  "27_Intros From The Four":
+    key: null       # multi-key teaching track → neutral labels
+```
+
+- Value is a **dict** per track so the schema can grow (future `freq_range`,
+  `title`, or a `segments` list — see §1 out-of-scope) without restructuring.
+- `key`: `"<root>"` or `"<root>m"`; only the root drives tiers, the quality is
+  recorded for posterity. `null` (or omitted `key`) → neutral labels.
+- A track absent from the file falls through to auto-detection.
+- `data/BluesBass.yaml` is already authored (committed) from the course book:
+  19→F, 12→A, 08→F, 40→Bm, 41→F♯m, 26/27→null.
 
 ## 8. CLI
 
@@ -291,7 +396,8 @@ reads the source MP3.
 | `--fps N`               | preset         | override fps                         |
 | `--count N`             | preset         | CQT smoothness                       |
 | `--crf N`               | 20             | quality/size                        |
-| `--freq-range LOW HIGH` | 36 600         | CQT bass framing (two values)        |
+| `--freq-range LOW HIGH` | 65.41 261.63   | CQT bass framing, Hz (default C2–C4)  |
+| `--key KEY`             | sidecar/detect | force key for label tiers (e.g. `F`, `Bm`); wins over sidecar + auto-detect |
 | `--no-waveform`         | off            | drop the waveform strip              |
 | `--no-labels`           | off            | drop axis labels                     |
 | `--font PATH`           | bundled font   | override the label/title font        |
@@ -307,7 +413,7 @@ reads the source MP3.
 **Artifacts produced** (under `out/<collection>/<track>/`, slice suffix applied
 where relevant): `<track>_render.mp4` (final/draft), `<track>_render_still.mp4`
 (still), `<track>_thumbnail.png` (always). Intermediates `<track>_axis.png`,
-`<track>_wave.png`, `<track>_cover.png` live alongside and are removed by
+`<track>_wave.png`, `<track>_cover.jpg` live alongside and are removed by
 `just clean`.
 
 ## 9. Fonts
@@ -340,19 +446,28 @@ Mirrors the existing split: pure unit tests run without ffmpeg; ffmpeg/Pillow
 tests are marked `integration`.
 
 **Pure unit tests (fast, no ffmpeg):**
-- `test_metadata.py` — number from filename stem (`03_x_bass_only` → `03`);
+- `test_render_metadata.py` — number from filename stem (`03_x_bass_only` → `03`);
   title/artist read from the m4a tags; `(Bass Only)` suffix kept verbatim;
   slash-title case (track 08 `Uptown Up/Uptown Down`); missing artist tag → line
   skipped, no error; filename with no leading number → number skipped.
-- `test_filtergraph.py` — builder emits `format=yuv420p` on every branch; `asplit`
-  present; even dimensions; `-map 1:a` for audio; the playhead overlay x-formula;
-  each preset yields the expected graph shape. Pure string assertions.
-- `test_labels.py` — the #1 risk: x-position formula
+- `test_render_filtergraph.py` — builder emits `format=yuv420p` on every branch;
+  even dimensions; `-map 1:a` for audio; the playhead overlay x-formula;
+  `-shortest` bounds the looped image; each preset yields the expected graph shape.
+  Pure string assertions.
+- `test_render_labels.py` — the #1 risk: x-position formula
   `x = W·log2(f/basefreq)/log2(endfreq/basefreq)` verified against hand-computed
-  positions (basefreq → x=0; endfreq → x=W; one octave up → known x). Output PNG
-  is exactly `W×axis_h` RGBA. No video rendered.
-- `test_presets.py` — flag overrides patch the preset correctly (`--no-waveform`
-  drops the branch; `--res`/`--fps`/`--count` override).
+  positions (basefreq → x=0; endfreq → x=W; one octave up → known x). Plus
+  `note_tier` (blues-scale tiers for a known root; all-big when root is None).
+  Output PNG is exactly `W×48` RGBA. No video rendered.
+- `test_render_presets.py` — flag overrides patch the preset correctly
+  (`--no-waveform` drops the branch; `--res`/`--fps`/`--count` override).
+- `test_render_key.py` — `resolve_key` precedence: `--key` beats sidecar beats
+  auto-detect; `key: null` in the sidecar yields no key (neutral); parsing
+  `"F"`/`"Bm"`/`"F#m"` → correct root pitch-class. (`detect_key` itself is an
+  integration test — it needs librosa + audio.)
+- `test_render_overrides.py` — `load_overrides`/`get_override` read
+  `data/<collection>.yaml`, look up by stem, return the dict or None; a missing
+  file is not an error (returns no overrides).
 
 **Integration tests (`integration` marker; ffmpeg + Pillow):**
 - `test_render_integration.py` — first run the audio pipeline on the synthetic
@@ -367,12 +482,17 @@ tests are marked `integration`.
     drift guard the whole length invariant exists to protect).
   - **error-fast case:** pointing render at a `bass_only.m4a` with no co-located
     `bass.wav` exits non-zero with the expected message.
+  - **key detection:** `detect_key` on a synthetic single-pitch source returns a
+    plausible root (exercises the librosa path).
 - Tests use the bundled font, so they are deterministic on macOS and CI Linux.
 
 ## 12. Dependencies
 
-- **Pillow** — new dependency, required for `labels.py` (axisfile generation) and
-  `thumbnail.py`. Added to `pyproject.toml`.
+- **Pillow** — new dependency, for `labels.py` (axisfile generation) and
+  `thumbnail.py`.
+- **PyYAML** — new dependency, for reading the overrides sidecar (`overrides.py`).
+- **librosa** — already a project dependency (audio pipeline); reused by `key.py`
+  for Krumhansl key detection (`chroma_cqt`).
 - **ffmpeg / ffprobe** — already required by the audio pipeline (showcqt,
   showwavespic, drawtext, overlay, x264/aac all ship with standard ffmpeg 7.x/8.x).
-- No new runtime deps beyond Pillow.
+- New runtime deps: **Pillow** and **PyYAML**.

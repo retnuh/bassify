@@ -12,7 +12,8 @@
 #        falls back to neutral, equal-weight labels (no blues tiers), which is
 #        the correct behaviour when no single key applies.
 #
-# These entries were set by ear (Aug 2026) to correct auto-detection misses.
+# These entries were taken from the course book (Aug 2026) to correct
+# auto-detection misses.
 
 overrides:
   # Auto-detected A min, but the title says F and it is in F. Root F.
