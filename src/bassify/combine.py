@@ -24,9 +24,9 @@ from pathlib import Path
 import numpy as np
 import soundfile as sf
 
-from bassify.ffmpeg import ffprobe_duration, run_ffmpeg, should_skip
+from bassify.ffmpeg import run_ffmpeg, should_skip
 from bassify.paths import resolve_paths
-from bassify.slice import SliceSpec
+from bassify.slice import SliceSpec, input_needs_cut, resolve_effective_slice
 
 # ---------------------------------------------------------------------------
 # Donor-splice constants
@@ -272,6 +272,7 @@ def _apply_donor_splice_to_file(
     original_path: Path,
     bass_path: Path,
     windows: list[dict],
+    eff: SliceSpec | None = None,
 ) -> None:
     """For each count-in window (has prev_click + last_click), splice donor + even bass ramp.
 
@@ -294,6 +295,10 @@ def _apply_donor_splice_to_file(
         Path to the bass (L-R) mono WAV — needed to reconstruct the ramp.
     windows:
         List of window dicts (may contain last_click, prev_click, bass_onset).
+    eff:
+        Effective slice spec. When set and non-empty, the original is loaded
+        sliced (offset+duration) and the bass is loaded sliced iff its filename
+        does not already encode the slice.
     """
     import librosa
 
@@ -301,16 +306,28 @@ def _apply_donor_splice_to_file(
     if not splice_windows:
         return
 
+    effective = eff or SliceSpec()
+
     # Load combined (PCM_24 mono)
     combined, sr = sf.read(str(out_path), dtype="float64", always_2d=False)
 
-    # Load original resampled to combined sr (mono)
-    yo = librosa.load(str(original_path), sr=sr, mono=True)[0].astype(np.float64)
+    # Load original resampled to combined sr (mono).
+    # When the original needs cutting (not pre-sliced on disk), load with offset/duration.
+    if not effective.is_empty() and input_needs_cut(original_path, effective):
+        lkw = effective.load_kwargs()
+        yo = librosa.load(str(original_path), sr=sr, mono=True, **lkw)[0].astype(np.float64)
+    else:
+        yo = librosa.load(str(original_path), sr=sr, mono=True)[0].astype(np.float64)
 
     # Load bass resampled to combined sr (mono) — needed for even ramp reconstruction.
     # ffmpeg hard-zeroed bass in [start, bass_onset] for click windows; we add it
     # back with the even ramp gain in numpy.
-    yb = librosa.load(str(bass_path), sr=sr, mono=True)[0].astype(np.float64)
+    # Bass is loaded sliced iff its filename does not already encode the slice.
+    if not effective.is_empty() and input_needs_cut(bass_path, effective):
+        lkw = effective.load_kwargs()
+        yb = librosa.load(str(bass_path), sr=sr, mono=True, **lkw)[0].astype(np.float64)
+    else:
+        yb = librosa.load(str(bass_path), sr=sr, mono=True)[0].astype(np.float64)
 
     modified = False
     for w in splice_windows:
@@ -360,7 +377,6 @@ def combine_track(
     windows_path: Path,
     output: Path | None = None,
     slice_spec: SliceSpec | None = None,
-    cut_inputs: bool = True,
     force: bool = False,
 ) -> Path:
     """Mix ducked bass + gated original into a mono combined track.
@@ -377,8 +393,6 @@ def combine_track(
         Output path; defaults to resolved combined path.
     slice_spec:
         Optional time-slice spec for input cutting.
-    cut_inputs:
-        When True, apply slice_spec to both inputs and check duration match.
     force:
         Overwrite existing output if True.
 
@@ -386,8 +400,8 @@ def combine_track(
     -------
     Path to the written combined audio file.
     """
-    spec = slice_spec or SliceSpec()
-    out = output or resolve_paths(original_path, slice_spec=spec).bass_only
+    eff = resolve_effective_slice([bass_path, original_path], explicit=slice_spec)
+    out = output or resolve_paths(original_path, slice_spec=eff).bass_only
     out.parent.mkdir(parents=True, exist_ok=True)
     if should_skip(out, force):
         print(f"skip (exists): {out}")
@@ -399,18 +413,22 @@ def combine_track(
     bass_duck_expr = build_bass_duck(windows)
     fg = build_filtergraph(orig_gate, bass_duck_expr)
 
-    if cut_inputs:
+    # Duration-mismatch warning only when nothing is being cut (eff is empty).
+    if eff.is_empty():
+        from bassify.ffmpeg import ffprobe_duration
         db = ffprobe_duration(bass_path)
         do = ffprobe_duration(original_path)
         if abs(db - do) > 0.1:
             print(f"WARNING: duration mismatch bass={db:.3f}s original={do:.3f}s (mix may drift)")
 
     args: list[str] = []
-    if cut_inputs:
-        args += spec.input_args()
+    # Bass input: cut iff filename doesn't already encode the slice.
+    if not eff.is_empty() and input_needs_cut(bass_path, eff):
+        args += eff.input_args()
     args += ["-i", str(bass_path)]
-    if cut_inputs:
-        args += spec.input_args()
+    # Original input: cut iff filename doesn't already encode the slice.
+    if not eff.is_empty() and input_needs_cut(original_path, eff):
+        args += eff.input_args()
     args += [
         "-i",
         str(original_path),
@@ -427,6 +445,6 @@ def combine_track(
 
     # Post-step: for count-in windows (prev_click + last_click), apply even bass
     # ramp from last_click to bass_onset, then splice the clean donor click.
-    _apply_donor_splice_to_file(out, original_path, bass_path, windows)
+    _apply_donor_splice_to_file(out, original_path, bass_path, windows, eff=eff)
 
     return out

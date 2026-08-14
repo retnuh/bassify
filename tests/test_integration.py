@@ -142,8 +142,7 @@ def test_full_pipeline_length_invariant(tmp_path: Path, monkeypatch: pytest.Monk
     """No-slice run_pipeline: bass_only must equal the bass frame count exactly.
 
     This is the production path (no --duration/--start). The length invariant
-    underpins remix channel pairing and future video sync. The sliced-preview
-    path is a known post-V1 limitation and is intentionally not asserted here.
+    underpins remix channel pairing and future video sync.
     """
     monkeypatch.chdir(tmp_path)
 
@@ -156,4 +155,38 @@ def test_full_pipeline_length_invariant(tmp_path: Path, monkeypatch: pytest.Monk
     with wave.open(str(p.bass), "rb") as wb, wave.open(str(p.bass_only), "rb") as wc:
         assert wc.getnframes() == wb.getnframes(), (
             f"length invariant broken: bass_only {wc.getnframes()} != bass {wb.getnframes()}"
+        )
+
+
+@pytest.mark.skipif(ffmpeg_missing, reason=skip_reason)
+def test_sliced_pipeline_length_invariant(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sliced run_pipeline: bass_only and remix must equal the bass frame count.
+
+    This is the regression test for the bug where bass_only/remix came out at
+    full-source length (e.g. 168000 frames) while bass was correctly sliced
+    (e.g. 96000 frames).  After the fix, downstream stages reconcile the slice
+    from the bass filename and correctly cut the full original to match.
+    """
+    monkeypatch.chdir(tmp_path)
+
+    src = tmp_path / "Coll" / "track.wav"
+    _make_source(src)
+
+    spec = SliceSpec(duration=2)
+    run_pipeline(src, slice_spec=spec, force=True)
+
+    p = resolve_paths(src, slice_spec=spec)
+    with (
+        wave.open(str(p.bass), "rb") as wb,
+        wave.open(str(p.bass_only), "rb") as wc,
+        wave.open(str(p.remix), "rb") as wr,
+    ):
+        bass_frames = wb.getnframes()
+        bass_only_frames = wc.getnframes()
+        remix_frames = wr.getnframes()
+        assert bass_only_frames == bass_frames, (
+            f"sliced length invariant broken: bass_only {bass_only_frames} != bass {bass_frames}"
+        )
+        assert remix_frames == bass_frames, (
+            f"sliced length invariant broken: remix {remix_frames} != bass {bass_frames}"
         )

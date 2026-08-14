@@ -143,17 +143,26 @@ def find_guitar_cutoff(
 # librosa I/O layer — not unit-tested; exercised via UAT on real tracks
 # ---------------------------------------------------------------------------
 
-# Module-level audio cache: path -> (y, sr) per loaded file
+# Module-level audio cache: cache_key -> (y, sr) per loaded segment
 _audio_cache: dict[str, tuple[object, int]] = {}
 
 
-def _load_cached(path: str | Path) -> tuple[object, int]:
-    """Load audio file once; return (y, sr) from cache on subsequent calls."""
+def _load_cached(
+    path: str | Path, offset: float = 0.0, duration: float | None = None
+) -> tuple[object, int]:
+    """Load audio file with optional offset/duration; cache keyed on path+offset+duration.
+
+    Bass (already pre-sliced on disk in pipeline): call with offset=0.0, duration=None.
+    Original (full file that needs slicing): call with offset/duration from SliceSpec.load_kwargs().
+    """
     import librosa
 
-    key = str(path)
+    key = f"{path}|{offset}|{duration}"
     if key not in _audio_cache:
-        y, sr = librosa.load(str(path), sr=None, mono=True)
+        kwargs: dict = {"sr": None, "mono": True, "offset": offset}
+        if duration is not None:
+            kwargs["duration"] = duration
+        y, sr = librosa.load(str(path), **kwargs)
         _audio_cache[key] = (y, sr)
     return _audio_cache[key]
 
@@ -194,6 +203,7 @@ def refine_window(
     original_path: Path,
     window_start: float,
     window_end: float,
+    orig_slice: object | None = None,
 ) -> float:
     """Return refined cutoff for a window using librosa guitar-onset detection.
 
@@ -211,12 +221,18 @@ def refine_window(
         Start of the silence window (s).
     window_end:
         End of the silence window / detected music onset (s).
+    orig_slice:
+        Optional SliceSpec; when set and non-empty, the original is loaded
+        with offset+duration so its 0-based timeline matches slice-relative
+        window timestamps.
 
     Returns
     -------
     Cutoff timestamp in seconds.
     """
-    return refine_window_full(bass_path, original_path, window_start, window_end)["cutoff"]
+    return refine_window_full(
+        bass_path, original_path, window_start, window_end, orig_slice=orig_slice
+    )["cutoff"]
 
 
 def refine_window_full(
@@ -224,6 +240,7 @@ def refine_window_full(
     original_path: Path,
     window_start: float,
     window_end: float,
+    orig_slice: object | None = None,
 ) -> dict:
     """Return cutoff and last two click onsets for a window.
 
@@ -240,6 +257,11 @@ def refine_window_full(
         Start of the silence window (s).
     window_end:
         End of the silence window / detected music onset (s).
+    orig_slice:
+        Optional SliceSpec; when set and non-empty, the original is loaded
+        with offset+duration so its 0-based timeline matches slice-relative
+        window timestamps.  Bass is always loaded full (it is already the
+        correct slice on disk in the pipeline case).
 
     Returns
     -------
@@ -251,8 +273,18 @@ def refine_window_full(
     if window_end <= window_start:
         return {"cutoff": window_end, "last_click": None, "prev_click": None}
 
+    # Bass is always loaded full (pre-sliced on disk in pipeline, or full standalone).
     yb, sr_b = _load_cached(bass_path)
-    yo, sr_o = _load_cached(original_path)
+
+    # Original: load sliced when orig_slice is non-empty so its 0-based timeline
+    # matches the slice-relative window timestamps.
+    if orig_slice is not None and not orig_slice.is_empty():
+        lkw = orig_slice.load_kwargs()
+        yo, sr_o = _load_cached(
+            original_path, offset=lkw.get("offset", 0.0), duration=lkw.get("duration")
+        )
+    else:
+        yo, sr_o = _load_cached(original_path)
 
     bass_onsets = _onsets_in_window(yb, sr_b, window_start, window_end)
 

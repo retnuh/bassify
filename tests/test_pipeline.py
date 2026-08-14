@@ -4,17 +4,20 @@ from pathlib import Path
 
 from bassify.extract import DEFAULT_LOWPASS
 from bassify.paths import resolve_paths
+from bassify.slice import SliceSpec
 
 
-def test_run_pipeline_call_order_and_cut_inputs(monkeypatch, tmp_path):
-    """run_pipeline calls all 5 stages in order with correct cut_inputs values."""
+def test_run_pipeline_call_order_and_slice_threading(monkeypatch, tmp_path):
+    """run_pipeline calls all 5 stages in order; extract keeps cut_inputs=True;
+    detect/combine/remix receive slice_spec and no longer take cut_inputs."""
     calls = []
 
     input_mp3 = tmp_path / "tracks" / "Band" / "01_Song.mp3"
     input_mp3.parent.mkdir(parents=True)
     input_mp3.touch()
 
-    paths = resolve_paths(input_mp3)
+    spec = SliceSpec(duration=30.0)
+    paths = resolve_paths(input_mp3, slice_spec=spec)
 
     def fake_extract_bass(
         input_path,
@@ -23,8 +26,11 @@ def test_run_pipeline_call_order_and_cut_inputs(monkeypatch, tmp_path):
         slice_spec=None,
         cut_inputs=True,
         force=False,
-    ):  # noqa: E501
-        calls.append(("extract_bass", {"cut_inputs": cut_inputs, "lowpass": lowpass}))
+    ):
+        calls.append(
+            ("extract_bass", {"cut_inputs": cut_inputs, "lowpass": lowpass,
+                              "slice_spec": slice_spec})
+        )
         return paths.bass
 
     def fake_detect_windows(
@@ -36,12 +42,11 @@ def test_run_pipeline_call_order_and_cut_inputs(monkeypatch, tmp_path):
         pad_end=-0.05,
         min_riff=0.5,
         slice_spec=None,
-        cut_inputs=True,
         force=False,
         original_path=None,
         drop_trailing=True,
-    ):  # noqa: E501
-        calls.append(("detect_windows", {"cut_inputs": cut_inputs, "original_path": original_path}))
+    ):
+        calls.append(("detect_windows", {"slice_spec": slice_spec, "original_path": original_path}))
         return paths.windows
 
     def fake_combine_track(
@@ -50,16 +55,15 @@ def test_run_pipeline_call_order_and_cut_inputs(monkeypatch, tmp_path):
         windows_path,
         output=None,
         slice_spec=None,
-        cut_inputs=True,
         force=False,
-    ):  # noqa: E501
-        calls.append(("combine_track", {"cut_inputs": cut_inputs}))
+    ):
+        calls.append(("combine_track", {"slice_spec": slice_spec}))
         return paths.bass_only
 
     def fake_remix_track(
-        combined_path, original_path, output=None, slice_spec=None, cut_inputs=True, force=False
-    ):  # noqa: E501
-        calls.append(("remix_track", {"cut_inputs": cut_inputs}))
+        combined_path, original_path, output=None, slice_spec=None, force=False
+    ):
+        calls.append(("remix_track", {"slice_spec": slice_spec}))
         return paths.remix
 
     encode_calls = []
@@ -77,7 +81,7 @@ def test_run_pipeline_call_order_and_cut_inputs(monkeypatch, tmp_path):
 
     from bassify.pipeline import run_pipeline
 
-    run_pipeline(input_mp3)
+    run_pipeline(input_mp3, slice_spec=spec)
 
     # (a) call order
     assert [c[0] for c in calls] == [
@@ -90,15 +94,18 @@ def test_run_pipeline_call_order_and_cut_inputs(monkeypatch, tmp_path):
     # (b) extract got cut_inputs=True
     assert calls[0][1]["cut_inputs"] is True
 
-    # (c) detect/combine/remix got cut_inputs=False
-    assert calls[1][1]["cut_inputs"] is False
-    assert calls[2][1]["cut_inputs"] is False
-    assert calls[3][1]["cut_inputs"] is False
+    # (c) extract got the slice_spec
+    assert calls[0][1]["slice_spec"] == spec
 
-    # (d) detect got original_path == input_path
+    # (d) detect/combine/remix all got slice_spec
+    assert calls[1][1]["slice_spec"] == spec
+    assert calls[2][1]["slice_spec"] == spec
+    assert calls[3][1]["slice_spec"] == spec
+
+    # (e) detect got original_path == input_path
     assert calls[1][1]["original_path"] == input_mp3
 
-    # (e) encode called twice with the two m4a targets; bass_only gets the title marker
+    # (f) encode called twice with the two m4a targets; bass_only gets the title marker
     assert len(encode_calls) == 2
     encode_outputs = [ec[0] for ec in encode_calls]
     encode_suffixes = {ec[0]: ec[1] for ec in encode_calls}
@@ -124,7 +131,7 @@ def test_run_pipeline_passes_lowpass_through(monkeypatch, tmp_path):
         slice_spec=None,
         cut_inputs=True,
         force=False,
-    ):  # noqa: E501
+    ):
         received["lowpass"] = lowpass
         return paths.bass
 
@@ -137,11 +144,10 @@ def test_run_pipeline_passes_lowpass_through(monkeypatch, tmp_path):
         pad_end=-0.05,
         min_riff=0.5,
         slice_spec=None,
-        cut_inputs=True,
         force=False,
         original_path=None,
         drop_trailing=True,
-    ):  # noqa: E501
+    ):
         return paths.windows
 
     def fake_combine_track(
@@ -150,14 +156,13 @@ def test_run_pipeline_passes_lowpass_through(monkeypatch, tmp_path):
         windows_path,
         output=None,
         slice_spec=None,
-        cut_inputs=True,
         force=False,
-    ):  # noqa: E501
+    ):
         return paths.bass_only
 
     def fake_remix_track(
-        combined_path, original_path, output=None, slice_spec=None, cut_inputs=True, force=False
-    ):  # noqa: E501
+        combined_path, original_path, output=None, slice_spec=None, force=False
+    ):
         return paths.remix
 
     def fake_encode_track(wav_path, original_path, output=None, force=False, title_suffix=None):

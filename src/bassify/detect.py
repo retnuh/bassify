@@ -6,7 +6,7 @@ from pathlib import Path
 
 from bassify.countin import refine_window_full
 from bassify.ffmpeg import ffprobe_duration, run_ffmpeg_capture, should_skip
-from bassify.slice import SliceSpec
+from bassify.slice import SliceSpec, input_needs_cut, resolve_effective_slice
 
 _START = re.compile(r"silence_start:\s*([0-9.]+)")
 _END = re.compile(r"silence_end:\s*([0-9.]+)")
@@ -112,25 +112,32 @@ def detect_windows(
     pad_end: float = -0.05,
     min_riff: float = 0.5,
     slice_spec: SliceSpec | None = None,
-    cut_inputs: bool = True,
     force: bool = False,
     original_path: Path | None = None,
     drop_trailing: bool = True,
 ) -> Path:
     """Run silencedetect on the bass track, write windows JSON. Returns output path.
 
-    `output` sets the JSON path explicitly; when None the bass_path stem is used
+    ``output`` sets the JSON path explicitly; when None the bass_path stem is used
     for naming.
 
-    `original_path` enables count-in click cutoff refinement: each window's end
+    ``original_path`` enables count-in click cutoff refinement: each window's end
     is refined to sit just after the last count-in click, before the downbeat.
     When None (default), behaviour is unchanged.
 
-    `drop_trailing`: when True (default), the final window is dropped if its silence
+    ``drop_trailing``: when True (default), the final window is dropped if its silence
     end reaches the track end (within 1.0 s). This removes the typical end-of-track
     fade/silence that is not a count-in gap.
+
+    Slice reconciliation: resolves the effective slice from ``slice_spec`` and the
+    filename-embedded slice on ``bass_path`` (and ``original_path`` when given).
+    Only cuts an input via ffmpeg if it is not already pre-sliced on disk.
     """
-    spec = slice_spec or SliceSpec()
+    paths_to_check = [bass_path]
+    if original_path is not None:
+        paths_to_check.append(original_path)
+    eff = resolve_effective_slice(paths_to_check, explicit=slice_spec)
+
     if output is not None:
         out = output
     else:
@@ -141,8 +148,9 @@ def detect_windows(
         return out
 
     args: list[str] = []
-    if cut_inputs:
-        args += spec.input_args()
+    bass_needs_cut = input_needs_cut(bass_path, eff)
+    if bass_needs_cut and not eff.is_empty():
+        args += eff.input_args()
     args += [
         "-i",
         str(bass_path),
@@ -153,7 +161,16 @@ def detect_windows(
         "-",
     ]
     stderr = run_ffmpeg_capture(args)
-    duration = ffprobe_duration(bass_path)
+
+    # Duration for parse_silences clamping:
+    # - If bass is pre-sliced on disk (input_needs_cut=False), ffprobe returns slice duration.
+    # - If we cut bass via ffmpeg (input_needs_cut=True) and eff.duration is set, use eff.duration.
+    # - Otherwise, ffprobe the file.
+    if bass_needs_cut and not eff.is_empty() and eff.duration is not None:
+        duration = eff.duration
+    else:
+        duration = ffprobe_duration(bass_path)
+
     windows = parse_silences(
         stderr, duration=duration, pad_start=pad_start, pad_end=pad_end, min_riff=min_riff
     )
@@ -166,7 +183,9 @@ def detect_windows(
         refined: list[dict] = []
         for w in windows:
             bass_onset = w["end"]  # raw silence end = true music onset
-            info = refine_window_full(bass_path, original_path, w["start"], bass_onset)
+            info = refine_window_full(
+                bass_path, original_path, w["start"], bass_onset, orig_slice=eff
+            )
             entry: dict = {
                 "start": w["start"],
                 "end": info["cutoff"],

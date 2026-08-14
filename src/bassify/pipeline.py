@@ -21,8 +21,10 @@ def run_pipeline(
 ) -> None:
     """extract -> detect -> combine -> remix -> encode x2.
 
-    The ffmpeg time-cut is applied ONLY at extract; downstream stages read the
-    already-sliced WAVs (cut_inputs=False) but keep the slice suffix in names.
+    The ffmpeg time-cut is applied at extract (producing a pre-sliced bass WAV).
+    Downstream stages (detect/combine/remix) reconcile the effective slice from
+    filename tokens, so they correctly apply the slice to the full original without
+    re-cutting the already-sliced bass intermediate.
     """
     input_path = Path(input_path)
     paths = resolve_paths(input_path, slice_spec=slice_spec)
@@ -42,7 +44,6 @@ def run_pipeline(
         threshold=threshold,
         min_gap=min_gap,
         slice_spec=slice_spec,
-        cut_inputs=False,
         force=force,
         original_path=input_path,
     )
@@ -52,7 +53,6 @@ def run_pipeline(
         windows,
         output=paths.bass_only,
         slice_spec=slice_spec,
-        cut_inputs=False,
         force=force,
     )
     remixed = remix_track(
@@ -60,7 +60,6 @@ def run_pipeline(
         input_path,
         output=paths.remix,
         slice_spec=slice_spec,
-        cut_inputs=False,
         force=force,
     )
     encode_track(
