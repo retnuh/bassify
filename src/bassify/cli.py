@@ -7,6 +7,7 @@ import typer
 
 from bassify import combine as combine_mod
 from bassify import detect as detect_mod
+from bassify import encode as encode_mod
 from bassify import extract as extract_mod
 from bassify import remix as remix_mod
 from bassify.slice import SliceSpec
@@ -148,6 +149,17 @@ def remix(
     """Build pannable stereo (L=combined, R=original right) -> remix WAV."""
     spec = SliceSpec(duration=duration, start=start)
     remix_mod.remix_track(combined_path, original_path, output=output, slice_spec=spec, force=force)
+
+
+@app.command()
+def encode(
+    wav_path: Path,
+    original_path: Path,
+    output: Annotated[Path | None, typer.Option("-o", "--output")] = None,
+    force: Annotated[bool, typer.Option("--force", help="Overwrite existing output.")] = False,
+) -> None:
+    """Encode a WAV to AAC/.m4a with original metadata + cover art."""
+    encode_mod.encode_track(wav_path, original_path, output=output, force=force)
 
 
 if __name__ == "__main__":
