@@ -11,8 +11,7 @@ def _write(dirp: Path, name: str, text: str) -> None:
 
 
 def test_load_and_get(tmp_path: Path):
-    _write(tmp_path, "BluesBass.yaml",
-           'overrides:\n  "19_x": {key: F}\n  "27_y": {key: null}\n')
+    _write(tmp_path, "BluesBass.yaml", 'overrides:\n  "19_x": {key: F}\n  "27_y": {key: null}\n')
     ov = load_overrides("BluesBass", data_dir=tmp_path)
     assert ov["19_x"]["key"] == "F"
     assert get_override("BluesBass", "19_x", data_dir=tmp_path) == {"key": "F"}

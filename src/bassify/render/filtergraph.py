@@ -18,11 +18,32 @@ def _cqt_height(preset: RenderPreset) -> int:
 
 def _output_args(preset: RenderPreset, out_path: Path) -> list[str]:
     return [
-        "-c:v", "libx264", "-profile:v", "high",
-        "-preset", preset.x264_preset, "-crf", str(preset.crf),
-        "-pix_fmt", "yuv420p", "-r", str(preset.fps), "-g", str(preset.fps // 2),
-        "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
-        "-movflags", "+faststart", "-shortest", str(out_path),
+        "-c:v",
+        "libx264",
+        "-profile:v",
+        "high",
+        "-preset",
+        preset.x264_preset,
+        "-crf",
+        str(preset.crf),
+        "-pix_fmt",
+        "yuv420p",
+        "-color_range",
+        "1",  # limited range → yuv420p not yuvj420p
+        "-r",
+        str(preset.fps),
+        "-g",
+        str(preset.fps // 2),
+        "-c:a",
+        "aac",
+        "-b:a",
+        "192k",
+        "-ar",
+        "48000",
+        "-movflags",
+        "+faststart",
+        "-shortest",
+        str(out_path),
     ]
 
 
@@ -40,11 +61,7 @@ def build_full_args(
 ) -> list[str]:
     w = preset.width
     cqt_h = _cqt_height(preset)
-    axis = (
-        f":axis_h=48:axisfile={axis_png}"
-        if (preset.labels and axis_png is not None)
-        else ""
-    )
+    axis = f":axis_h=48:axisfile={axis_png}" if (preset.labels and axis_png is not None) else ""
     parts = [
         f"[0:a]showcqt=s={w}x{cqt_h}:fps={preset.fps}:count={preset.count}:"
         f"basefreq={preset.basefreq:g}:endfreq={preset.endfreq:g}:"
@@ -83,8 +100,12 @@ def build_full_args(
 
     return [
         *inputs,
-        "-filter_complex", ";".join(parts),
-        "-map", "[v]", "-map", "1:a",
+        "-filter_complex",
+        ";".join(parts),
+        "-map",
+        "[v]",
+        "-map",
+        "1:a",
         *_output_args(preset, out_path),
     ]
 
@@ -102,12 +123,32 @@ def build_still_args(
         f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,format=yuv420p"
     )
     return [
-        "-loop", "1", "-i", str(cover_png),
-        "-i", str(bass_only),
-        "-vf", vf,
-        "-c:v", "libx264", "-tune", "stillimage",
-        "-preset", preset.x264_preset, "-crf", str(preset.crf),
-        "-pix_fmt", "yuv420p", "-r", str(preset.fps),
-        "-c:a", "copy", "-shortest", "-movflags", "+faststart",
+        "-loop",
+        "1",
+        "-i",
+        str(cover_png),
+        "-i",
+        str(bass_only),
+        "-vf",
+        vf,
+        "-c:v",
+        "libx264",
+        "-tune",
+        "stillimage",
+        "-preset",
+        preset.x264_preset,
+        "-crf",
+        str(preset.crf),
+        "-pix_fmt",
+        "yuv420p",
+        "-color_range",
+        "1",  # limited range → yuv420p not yuvj420p
+        "-r",
+        str(preset.fps),
+        "-c:a",
+        "copy",
+        "-shortest",
+        "-movflags",
+        "+faststart",
         str(out_path),
     ]

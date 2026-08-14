@@ -26,11 +26,11 @@ def test_axis_h_is_48():
 def test_note_tier_with_root_E():
     E = 4
     assert note_tier(4, E) == "big"
-    assert note_tier(7, E) == "big"    # G = b3
-    assert note_tier(9, E) == "big"    # A = 4
-    assert note_tier(11, E) == "big"   # B = 5
-    assert note_tier(2, E) == "big"    # D = b7
-    assert note_tier(10, E) == "med"   # A# = b5
+    assert note_tier(7, E) == "big"  # G = b3
+    assert note_tier(9, E) == "big"  # A = 4
+    assert note_tier(11, E) == "big"  # B = 5
+    assert note_tier(2, E) == "big"  # D = b7
+    assert note_tier(10, E) == "med"  # A# = b5
     assert note_tier(5, E) == "small"  # F
 
 

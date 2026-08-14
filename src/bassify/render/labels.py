@@ -11,7 +11,7 @@ _NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 AXIS_H = 48  # fixed strip height; passed to showcqt as axis_h so the PNG maps 1:1
 
 _BLUES_BIG = frozenset({0, 3, 5, 7, 10})  # 1, b3, 4, 5, b7
-_FLAT5 = frozenset({6})                    # b5 — blue note (red, medium)
+_FLAT5 = frozenset({6})  # b5 — blue note (red, medium)
 
 _SIZE = {"big": 30, "med": 24, "small": 16}
 _YOFF = {"big": 6, "med": 10, "small": 14}
@@ -84,7 +84,13 @@ def build_axis_strip(
         draw.line([(x, 0), (x, axis_h)], fill=(0, 0, 0, 180), width=3)
         draw.line([(x, 0), (x, axis_h)], fill=color, width=1)
         label = f"{_NAMES[pc]}{midi // 12 - 1}" if is_root else _NAMES[pc]
-        draw.text((x + 3, _YOFF[tier]), label, font=fonts[tier], fill=color,
-                  stroke_width=3, stroke_fill=_OUTLINE)
+        draw.text(
+            (x + 3, _YOFF[tier]),
+            label,
+            font=fonts[tier],
+            fill=color,
+            stroke_width=3,
+            stroke_fill=_OUTLINE,
+        )
     img.save(out_path)
     return out_path

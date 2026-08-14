@@ -42,6 +42,8 @@ def test_no_leading_number_is_none():
 
 def test_display_lines_omits_none():
     assert TrackMeta("03", "Turnarounds", "Ed Friedland").display_lines() == [
-        "03", "Turnarounds", "Ed Friedland",
+        "03",
+        "Turnarounds",
+        "Ed Friedland",
     ]
     assert TrackMeta(None, "Foo", None).display_lines() == ["Foo"]

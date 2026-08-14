@@ -34,16 +34,17 @@ def build_thumbnail(
         rows.append((meta.artist, ARTIST_SIZE))
 
     fonts = [ImageFont.truetype(font_path, size) for _, size in rows]
-    heights = [draw.textbbox((0, 0), t, font=f)[3] - draw.textbbox((0, 0), t, font=f)[1]
-               for (t, _), f in zip(rows, fonts, strict=True)]
+    heights = [
+        draw.textbbox((0, 0), t, font=f)[3] - draw.textbbox((0, 0), t, font=f)[1]
+        for (t, _), f in zip(rows, fonts, strict=True)
+    ]
 
     gap = 16
     y = int(height * 0.62)
     draw.rectangle([0, y - 20, width, height], fill=(0, 0, 0, 120))
     for (text, _), font, h in zip(rows, fonts, heights, strict=True):
         bb = draw.textbbox((0, 0), text, font=font)
-        draw.text(((width - (bb[2] - bb[0])) / 2, y), text, font=font,
-                  fill=(255, 255, 255, 255))
+        draw.text(((width - (bb[2] - bb[0])) / 2, y), text, font=font, fill=(255, 255, 255, 255))
         y += h + gap
 
     art.save(out_png)

@@ -17,15 +17,23 @@ from bassify.render.waveform import render_waveform_pic
 
 
 def _read_tags(m4a: Path) -> dict[str, str]:
-    cmd = ["ffprobe", "-v", "error", "-show_entries", "format_tags=title,artist",
-           "-of", "default=noprint_wrappers=1", str(m4a)]
+    cmd = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-show_entries",
+        "format_tags=title,artist",
+        "-of",
+        "default=noprint_wrappers=1",
+        str(m4a),
+    ]
     proc = subprocess.run(cmd, capture_output=True, text=True)
     tags: dict[str, str] = {}
     for line in proc.stdout.splitlines():
         if line.startswith("TAG:title="):
-            tags["title"] = line[len("TAG:title="):]
+            tags["title"] = line[len("TAG:title=") :]
         elif line.startswith("TAG:artist="):
-            tags["artist"] = line[len("TAG:artist="):]
+            tags["artist"] = line[len("TAG:artist=") :]
     return tags
 
 
@@ -44,9 +52,7 @@ def _resolve_font(font: str | None) -> str:
 def resolve_render_inputs(bass_only_m4a: Path) -> Path:
     """Return the co-located bass.wav for a bass_only.m4a, or raise if missing."""
     bass_only_m4a = Path(bass_only_m4a)
-    bass_wav = bass_only_m4a.with_name(
-        bass_only_m4a.stem.replace("_bass_only", "_bass") + ".wav"
-    )
+    bass_wav = bass_only_m4a.with_name(bass_only_m4a.stem.replace("_bass_only", "_bass") + ".wav")
     if not bass_wav.exists():
         raise FileNotFoundError(
             f"No bass.wav alongside {bass_only_m4a}. Run 'bassify run' first "
@@ -57,17 +63,23 @@ def resolve_render_inputs(bass_only_m4a: Path) -> Path:
 
 def _out_paths(bass_only_m4a: Path) -> dict[str, Path]:
     from bassify.slice import SliceSpec
+
     d = bass_only_m4a.parent
     sfx = SliceSpec.from_filename(bass_only_m4a).suffix()
     stem = bass_only_m4a.stem.replace("_bass_only", "")
     if sfx and stem.endswith(sfx):
         stem = stem[: -len(sfx)]
+
     def p(kind: str, ext: str) -> Path:
         return d / f"{stem}_{kind}{sfx}.{ext}"
+
     return {
-        "render": p("render", "mp4"), "still": p("render_still", "mp4"),
-        "thumb": p("thumbnail", "png"), "axis": p("axis", "png"),
-        "wave": p("wave", "png"), "cover": p("cover", "jpg"),
+        "render": p("render", "mp4"),
+        "still": p("render_still", "mp4"),
+        "thumb": p("thumbnail", "png"),
+        "axis": p("axis", "png"),
+        "wave": p("wave", "png"),
+        "cover": p("cover", "jpg"),
     }
 
 
@@ -95,8 +107,14 @@ def render_track(
         print(f"skip (exists): {primary}")
         return primary
     preset = apply_overrides(
-        PRESETS[preset_name], res=res, fps=fps, count=count, crf=crf,
-        freq_range=freq_range, no_waveform=no_waveform, no_labels=no_labels,
+        PRESETS[preset_name],
+        res=res,
+        fps=fps,
+        count=count,
+        crf=crf,
+        freq_range=freq_range,
+        no_waveform=no_waveform,
+        no_labels=no_labels,
     )
     font_path = _resolve_font(font)
 
@@ -111,8 +129,11 @@ def render_track(
     build_thumbnail(out["cover"], out["thumb"], meta, font_path)
 
     if preset.still:
-        run_ffmpeg(build_still_args(
-            preset, cover_png=out["cover"], bass_only=bass_only_m4a, out_path=out["still"]))
+        run_ffmpeg(
+            build_still_args(
+                preset, cover_png=out["cover"], bass_only=bass_only_m4a, out_path=out["still"]
+            )
+        )
         return out["still"]
 
     # Resolve key (collection = grandparent dir name), then label tiers.
@@ -123,11 +144,16 @@ def render_track(
     axis_png = None
     if preset.labels:
         axis_png = build_axis_strip(
-            out["axis"], width=preset.width, basefreq=preset.basefreq,
-            endfreq=preset.endfreq, root_pc=root_pc, font_path=font_path,
+            out["axis"],
+            width=preset.width,
+            basefreq=preset.basefreq,
+            endfreq=preset.endfreq,
+            root_pc=root_pc,
+            font_path=font_path,
         )
-    wave_png = render_waveform_pic(bass_wav, out["wave"], width=preset.width) \
-        if preset.waveform else None
+    wave_png = (
+        render_waveform_pic(bass_wav, out["wave"], width=preset.width) if preset.waveform else None
+    )
 
     duration = ffprobe_duration(bass_only_m4a)
     with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as tf:
@@ -136,10 +162,15 @@ def render_track(
 
     try:
         args = build_full_args(
-            preset, bass_wav=bass_wav, bass_only=bass_only_m4a,
-            wave_png=wave_png, cover_png=out["cover"] if preset.overlays else None,
-            axis_png=axis_png, title_file=title_file if preset.overlays else None,
-            duration=duration, out_path=out["render"],
+            preset,
+            bass_wav=bass_wav,
+            bass_only=bass_only_m4a,
+            wave_png=wave_png,
+            cover_png=out["cover"] if preset.overlays else None,
+            axis_png=axis_png,
+            title_file=title_file if preset.overlays else None,
+            duration=duration,
+            out_path=out["render"],
         )
         args = [a.replace(FONT_SENTINEL, font_path) for a in args]
         run_ffmpeg(args)
@@ -177,6 +208,5 @@ def render_batch(directory: Path, **kwargs) -> None:
             print(f"  ERROR rendering {m.name}: {exc}")
             failed += 1
     print(
-        f"render batch done: {rendered} rendered, "
-        f"{skipped} skipped (no bass.wav), {failed} failed"
+        f"render batch done: {rendered} rendered, {skipped} skipped (no bass.wav), {failed} failed"
     )

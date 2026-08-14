@@ -11,6 +11,7 @@ from bassify import encode as encode_mod
 from bassify import extract as extract_mod
 from bassify import remix as remix_mod
 from bassify.pipeline import extract_batch, run_batch, run_pipeline
+from bassify.render import render_batch, render_track
 from bassify.slice import SliceSpec
 
 DurationOpt = Annotated[
@@ -231,6 +232,76 @@ def run(
             slice_spec=spec,
             force=force,
         )
+
+
+@app.command()
+def render(
+    input_path: Path,
+    preset: Annotated[str, typer.Option("--preset", help="draft | final | still")] = "final",
+    duration: DurationOpt = None,
+    start: StartOpt = None,
+    res: Annotated[
+        str | None, typer.Option("--res", help="Override resolution, e.g. 1920x1080.")
+    ] = None,
+    fps: Annotated[int | None, typer.Option("--fps", help="Override frames per second.")] = None,
+    count: Annotated[
+        int | None, typer.Option("--count", help="CQT transforms per frame (smoothness).")
+    ] = None,
+    crf: Annotated[
+        int | None, typer.Option("--crf", help="x264 quality (lower=better, default 20).")
+    ] = None,
+    freq_range: Annotated[
+        tuple[float, float] | None,
+        typer.Option(
+            "--freq-range",
+            help="CQT bass framing LOW HIGH in Hz (default 65.41 261.63 = C2-C4).",
+        ),
+    ] = None,
+    key: Annotated[
+        str | None,
+        typer.Option(
+            "--key",
+            help="Force key for label tiers (e.g. F, Bm). Wins over sidecar + auto-detect.",
+        ),
+    ] = None,
+    no_waveform: Annotated[
+        bool, typer.Option("--no-waveform", help="Drop the waveform strip.")
+    ] = False,
+    no_labels: Annotated[
+        bool, typer.Option("--no-labels", help="Drop the note-name axis labels.")
+    ] = False,
+    font: Annotated[
+        Path | None, typer.Option("--font", help="Override the label/title TTF.")
+    ] = None,
+    force: Annotated[bool, typer.Option("--force", help="Overwrite existing output.")] = False,
+) -> None:
+    """Render a bass_only.m4a to video (CQT + waveform) plus a thumbnail.
+
+    Pass a single bass_only.m4a (the co-located bass.wav drives the visuals),
+    or a directory to batch every bass_only.m4a that has a bass.wav beside it.
+    """
+    if preset not in ("draft", "final", "still"):
+        raise typer.BadParameter("preset must be draft, final, or still")
+    kwargs = dict(
+        preset_name=preset,
+        key=key,
+        res=res,
+        fps=fps,
+        count=count,
+        crf=crf,
+        freq_range=freq_range,
+        no_waveform=no_waveform,
+        no_labels=no_labels,
+        font=str(font) if font else None,
+        force=force,
+    )
+    if input_path.is_dir():
+        render_batch(input_path, **kwargs)
+        return
+    if preset == "final" and duration is None and start is None:
+        print("note: full-length render can take minutes (CQT is ~0.5-2x realtime).")
+        print("tip: add --duration 30 to preview a slice first.")
+    render_track(input_path, **kwargs)
 
 
 if __name__ == "__main__":

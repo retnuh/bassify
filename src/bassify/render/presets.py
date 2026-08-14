@@ -23,12 +23,13 @@ class RenderPreset:
 _C2, _C4 = 65.41, 261.63  # default CQT bass framing
 
 PRESETS: dict[str, RenderPreset] = {
-    "draft": RenderPreset("draft", 1280, 720, 30, 2, False, False, False,
-                          "fast", 20, _C2, _C4, False),
-    "final": RenderPreset("final", 1280, 720, 30, 4, True, True, True,
-                          "slow", 20, _C2, _C4, False),
-    "still": RenderPreset("still", 1280, 720, 2, 0, False, False, False,
-                          "ultrafast", 20, _C2, _C4, True),
+    "draft": RenderPreset(
+        "draft", 1280, 720, 30, 2, False, False, False, "fast", 20, _C2, _C4, False
+    ),
+    "final": RenderPreset("final", 1280, 720, 30, 4, True, True, True, "slow", 20, _C2, _C4, False),
+    "still": RenderPreset(
+        "still", 1280, 720, 2, 0, False, False, False, "ultrafast", 20, _C2, _C4, True
+    ),
 }
 
 

@@ -17,9 +17,14 @@ def test_wave_strip_height():
 def test_full_final_has_all_pieces():
     args = build_full_args(
         PRESETS["final"],
-        bass_wav=Path("b.wav"), bass_only=Path("bo.m4a"),
-        wave_png=Path("w.png"), cover_png=Path("c.jpg"), axis_png=Path("a.png"),
-        title_file=Path("t.txt"), duration=10.0, out_path=Path("o.mp4"),
+        bass_wav=Path("b.wav"),
+        bass_only=Path("bo.m4a"),
+        wave_png=Path("w.png"),
+        cover_png=Path("c.jpg"),
+        axis_png=Path("a.png"),
+        title_file=Path("t.txt"),
+        duration=10.0,
+        out_path=Path("o.mp4"),
     )
     assert all(isinstance(a, str) for a in args)
     fx = _fx(args)
@@ -27,7 +32,7 @@ def test_full_final_has_all_pieces():
     assert "axis_h=48" in fx and "axisfile=a.png" in fx
     assert "1280x640" in fx  # CQT height = 720 - 80
     assert "scale=1280:80" in fx  # wave strip
-    assert "t/10.0*1280" in fx    # playhead
+    assert "t/10.0*1280" in fx  # playhead
     assert "drawtext=" in fx
     assert fx.strip().endswith("format=yuv420p[v]")
     assert "-map" in args and "[v]" in args and "1:a" in args
@@ -37,23 +42,36 @@ def test_full_final_has_all_pieces():
 
 
 def test_full_draft_drops_labels_waveform_overlays():
-    fx = _fx(build_full_args(
-        PRESETS["draft"],
-        bass_wav=Path("b.wav"), bass_only=Path("bo.m4a"),
-        wave_png=None, cover_png=None, axis_png=None,
-        title_file=None, duration=10.0, out_path=Path("o.mp4"),
-    ))
+    fx = _fx(
+        build_full_args(
+            PRESETS["draft"],
+            bass_wav=Path("b.wav"),
+            bass_only=Path("bo.m4a"),
+            wave_png=None,
+            cover_png=None,
+            axis_png=None,
+            title_file=None,
+            duration=10.0,
+            out_path=Path("o.mp4"),
+        )
+    )
     assert "axisfile=" not in fx and "drawtext=" not in fx and "vstack" not in fx
 
 
 def test_full_no_waveform_but_overlays_cover_index_2():
     from bassify.render.presets import apply_overrides
+
     preset = apply_overrides(PRESETS["final"], no_waveform=True)  # overlays still True
     args = build_full_args(
         preset,
-        bass_wav=Path("b.wav"), bass_only=Path("bo.m4a"),
-        wave_png=None, cover_png=Path("c.jpg"), axis_png=Path("a.png"),
-        title_file=Path("t.txt"), duration=10.0, out_path=Path("o.mp4"),
+        bass_wav=Path("b.wav"),
+        bass_only=Path("bo.m4a"),
+        wave_png=None,
+        cover_png=Path("c.jpg"),
+        axis_png=Path("a.png"),
+        title_file=Path("t.txt"),
+        duration=10.0,
+        out_path=Path("o.mp4"),
     )
     fx = args[args.index("-filter_complex") + 1]
     # no waveform strip / vstack
@@ -66,8 +84,10 @@ def test_full_no_waveform_but_overlays_cover_index_2():
 
 def test_still_args_contract():
     args = build_still_args(
-        PRESETS["still"], cover_png=Path("c.jpg"),
-        bass_only=Path("bo.m4a"), out_path=Path("o.mp4"),
+        PRESETS["still"],
+        cover_png=Path("c.jpg"),
+        bass_only=Path("bo.m4a"),
+        out_path=Path("o.mp4"),
     )
     assert "-loop" in args and "-tune" in args and "stillimage" in args
     assert "-c:a" in args and "copy" in args
