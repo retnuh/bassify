@@ -61,9 +61,6 @@ class SliceSpec:
         >>> SliceSpec.from_filename("03_Turnarounds_bass.wav")
         SliceSpec(duration=None, start=None)
         """
-        stem = Path(path).name
-        # Remove the extension to get the stem (handle .wav, .mp3, etc.)
-        # We work on the full name stem (no extension)
         stem = Path(path).stem
         dur_m = _DUR_TOKEN.search(stem)
         start_m = _START_TOKEN.search(stem)
