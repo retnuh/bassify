@@ -1,7 +1,10 @@
 name: CI
 
+# Run on direct pushes to main and on PRs. Scoping push to main avoids the
+# double run you'd get on a PR branch (push + pull_request both firing).
 on:
   push:
+    branches: [main]
   pull_request:
 
 jobs:
