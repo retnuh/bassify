@@ -5,7 +5,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from bassify.ffmpeg import ffprobe_duration, run_ffmpeg
+from bassify.ffmpeg import ffprobe_duration, run_ffmpeg, should_skip
 from bassify.render.filtergraph import FONT_SENTINEL, build_full_args, build_still_args
 from bassify.render.key import resolve_key
 from bassify.render.labels import build_axis_strip
@@ -56,10 +56,14 @@ def resolve_render_inputs(bass_only_m4a: Path) -> Path:
 
 
 def _out_paths(bass_only_m4a: Path) -> dict[str, Path]:
+    from bassify.slice import SliceSpec
     d = bass_only_m4a.parent
-    base = bass_only_m4a.stem.replace("_bass_only", "")  # keeps slice suffix
+    sfx = SliceSpec.from_filename(bass_only_m4a).suffix()
+    stem = bass_only_m4a.stem.replace("_bass_only", "")
+    if sfx and stem.endswith(sfx):
+        stem = stem[: -len(sfx)]
     def p(kind: str, ext: str) -> Path:
-        return d / f"{base}_{kind}.{ext}"
+        return d / f"{stem}_{kind}{sfx}.{ext}"
     return {
         "render": p("render", "mp4"), "still": p("render_still", "mp4"),
         "thumb": p("thumbnail", "png"), "axis": p("axis", "png"),
@@ -85,11 +89,15 @@ def render_track(
     """Render one bass_only.m4a to video (+ thumbnail). Returns the primary output."""
     bass_only_m4a = Path(bass_only_m4a)
     bass_wav = resolve_render_inputs(bass_only_m4a)
+    out = _out_paths(bass_only_m4a)
+    primary = out["still"] if PRESETS[preset_name].still else out["render"]
+    if should_skip(primary, force):
+        print(f"skip (exists): {primary}")
+        return primary
     preset = apply_overrides(
         PRESETS[preset_name], res=res, fps=fps, count=count, crf=crf,
         freq_range=freq_range, no_waveform=no_waveform, no_labels=no_labels,
     )
-    out = _out_paths(bass_only_m4a)
     font_path = _resolve_font(font)
 
     tags = _read_tags(bass_only_m4a)
@@ -126,15 +134,17 @@ def render_track(
         tf.write(" ".join(x for x in (meta.number, meta.name) if x))
         title_file = Path(tf.name)
 
-    args = build_full_args(
-        preset, bass_wav=bass_wav, bass_only=bass_only_m4a,
-        wave_png=wave_png, cover_png=out["cover"] if preset.overlays else None,
-        axis_png=axis_png, title_file=title_file if preset.overlays else None,
-        duration=duration, out_path=out["render"],
-    )
-    args = [a.replace(FONT_SENTINEL, font_path) for a in args]
-    run_ffmpeg(args)
-    title_file.unlink(missing_ok=True)
+    try:
+        args = build_full_args(
+            preset, bass_wav=bass_wav, bass_only=bass_only_m4a,
+            wave_png=wave_png, cover_png=out["cover"] if preset.overlays else None,
+            axis_png=axis_png, title_file=title_file if preset.overlays else None,
+            duration=duration, out_path=out["render"],
+        )
+        args = [a.replace(FONT_SENTINEL, font_path) for a in args]
+        run_ffmpeg(args)
+    finally:
+        title_file.unlink(missing_ok=True)
     return out["render"]
 
 
