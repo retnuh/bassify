@@ -8,6 +8,7 @@ import typer
 from bassify import combine as combine_mod
 from bassify import detect as detect_mod
 from bassify import extract as extract_mod
+from bassify import remix as remix_mod
 from bassify.slice import SliceSpec
 
 DurationOpt = Annotated[
@@ -133,6 +134,20 @@ def combine(
     combine_mod.combine_track(
         bass_path, original_path, windows_path, output=output, slice_spec=spec, force=force
     )
+
+
+@app.command()
+def remix(
+    combined_path: Path,
+    original_path: Path,
+    output: Annotated[Path | None, typer.Option("-o", "--output")] = None,
+    duration: DurationOpt = None,
+    start: StartOpt = None,
+    force: bool = typer.Option(False, "--force"),
+) -> None:
+    """Build pannable stereo (L=combined, R=original right) -> remix WAV."""
+    spec = SliceSpec(duration=duration, start=start)
+    remix_mod.remix_track(combined_path, original_path, output=output, slice_spec=spec, force=force)
 
 
 if __name__ == "__main__":
