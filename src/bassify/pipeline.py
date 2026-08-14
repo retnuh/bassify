@@ -68,7 +68,7 @@ def run_pipeline(
     print(f"done: {paths.track_dir}")
 
 
-_SOURCE_GLOBS = ("*.mp3", "*.flac")
+_SOURCE_GLOBS = ("*.mp3", "*.m4a", "*.flac", "*.wav", "*.aac", "*.ogg")
 
 
 def run_batch(
@@ -81,7 +81,8 @@ def run_batch(
 ) -> None:
     """Process every source audio track directly in input_dir (non-recursive).
 
-    Source extensions: .mp3 and .flac only (avoids picking up our own .wav/.m4a outputs).
+    Source extensions: .mp3, .m4a, .flac, .wav, .aac, .ogg.
+    Outputs go to out/<collection>/<track>/ so there is no self-collision with the input dir.
     Tracks are processed in sorted order; a failure on one track is printed and skipped.
     """
     input_dir = Path(input_dir)
@@ -91,7 +92,7 @@ def run_batch(
     tracks = sorted(set(tracks))
 
     if not tracks:
-        print(f"batch: no .mp3 or .flac files found in {input_dir}")
+        print(f"batch: no audio files found in {input_dir}")
         return
 
     total = len(tracks)

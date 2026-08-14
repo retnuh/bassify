@@ -188,23 +188,26 @@ def test_run_pipeline_passes_lowpass_through(monkeypatch, tmp_path):
 
 
 def _make_batch_dir(tmp_path):
-    """Create a tmp dir with 2 mp3s, 1 flac, 1 wav, 1 txt, 1 m4a and return dir + mp3/flac paths."""
+    """Create a tmp dir with audio source files, a .txt, and a subdir (which must be ignored).
+
+    Source files picked up: .mp3, .m4a, .flac (all in _SOURCE_GLOBS).
+    Ignored: .txt, subdirectory entries.
+    """
     d = tmp_path / "tracks" / "Band"
     d.mkdir(parents=True)
     mp3a = d / "01_Alpha.mp3"
+    m4a = d / "02_Bravo.m4a"
     mp3b = d / "03_Charlie.mp3"
-    flac = d / "02_Bravo.flac"
     mp3a.touch()
+    m4a.touch()
     mp3b.touch()
-    flac.touch()
-    (d / "bass.wav").touch()
-    (d / "combined.m4a").touch()
     (d / "notes.txt").touch()
-    return d, sorted([mp3a, mp3b, flac])
+    (d / "subdir").mkdir()  # directories must be ignored by glob
+    return d, sorted([mp3a, m4a, mp3b])
 
 
 def test_run_batch_calls_pipeline_per_source_file_sorted(monkeypatch, tmp_path):
-    """run_batch calls run_pipeline once per .mp3/.flac in sorted order, skips .wav/.txt/.m4a."""
+    """run_batch calls run_pipeline once per audio file in sorted order; skips .txt and subdirs."""
     batch_dir, source_tracks = _make_batch_dir(tmp_path)
     called_with = []
 
@@ -220,14 +223,13 @@ def test_run_batch_calls_pipeline_per_source_file_sorted(monkeypatch, tmp_path):
     run_batch(batch_dir)
 
     assert called_with == source_tracks
-    assert len(called_with) == 3  # 2 mp3 + 1 flac; .wav/.m4a/.txt excluded
+    assert len(called_with) == 3  # 2 mp3 + 1 m4a; .txt and subdir excluded
 
 
 def test_run_batch_empty_dir_does_not_call_pipeline(monkeypatch, tmp_path):
-    """run_batch with no source files prints a message and does NOT call run_pipeline."""
+    """run_batch with no audio files prints a message and does NOT call run_pipeline."""
     empty_dir = tmp_path / "empty"
     empty_dir.mkdir()
-    (empty_dir / "bass.wav").touch()
     (empty_dir / "notes.txt").touch()
 
     called = []
@@ -271,3 +273,68 @@ def test_run_batch_one_failure_does_not_stop_others(monkeypatch, tmp_path):
 
     assert attempted == sorted(tracks)  # all 3 attempted
     assert len(attempted) == 3
+
+
+# ---------------------------------------------------------------------------
+# CLI auto-detect dispatch tests
+# ---------------------------------------------------------------------------
+
+
+def test_cli_run_dispatches_to_run_batch_for_directory(monkeypatch, tmp_path):
+    """CLI `run` calls run_batch when the positional arg is a directory."""
+    from typer.testing import CliRunner
+
+    import bassify.cli as cli_mod
+    from bassify.cli import app
+
+    batch_called_with = []
+    pipeline_called_with = []
+
+    def fake_run_batch(input_dir, **kwargs):
+        batch_called_with.append(Path(input_dir))
+
+    def fake_run_pipeline(input_path, **kwargs):
+        pipeline_called_with.append(Path(input_path))
+
+    monkeypatch.setattr(cli_mod, "run_batch", fake_run_batch)
+    monkeypatch.setattr(cli_mod, "run_pipeline", fake_run_pipeline)
+
+    d = tmp_path / "tracks"
+    d.mkdir()
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["run", str(d)])
+
+    assert result.exit_code == 0, result.output
+    assert batch_called_with == [d]
+    assert pipeline_called_with == []
+
+
+def test_cli_run_dispatches_to_run_pipeline_for_file(monkeypatch, tmp_path):
+    """CLI `run` calls run_pipeline when the positional arg is a file."""
+    from typer.testing import CliRunner
+
+    import bassify.cli as cli_mod
+    from bassify.cli import app
+
+    batch_called_with = []
+    pipeline_called_with = []
+
+    def fake_run_batch(input_dir, **kwargs):
+        batch_called_with.append(Path(input_dir))
+
+    def fake_run_pipeline(input_path, **kwargs):
+        pipeline_called_with.append(Path(input_path))
+
+    monkeypatch.setattr(cli_mod, "run_batch", fake_run_batch)
+    monkeypatch.setattr(cli_mod, "run_pipeline", fake_run_pipeline)
+
+    f = tmp_path / "01_Song.mp3"
+    f.touch()
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["run", str(f)])
+
+    assert result.exit_code == 0, result.output
+    assert pipeline_called_with == [f]
+    assert batch_called_with == []

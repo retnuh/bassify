@@ -166,10 +166,6 @@ def encode(
 @app.command()
 def run(
     input_path: Path,
-    batch: Annotated[
-        bool,
-        typer.Option("--batch", help="Process every .mp3/.flac in INPUT_PATH (a directory)."),
-    ] = False,
     lowpass: Annotated[
         float,
         typer.Option(
@@ -195,15 +191,12 @@ def run(
 ) -> None:
     """Run the full pipeline: extract -> detect -> combine -> remix -> encode.
 
-    Pass a single audio file, or use --batch with a directory to process all tracks in it.
+    Pass a single audio file to process one track, or a directory to process all
+    audio files in it (non-recursive, sorted, per-track error handling).
     """
     spec = SliceSpec(duration=duration, start=start)
     effective_lowpass = None if no_lowpass else lowpass
-    if batch:
-        if not input_path.is_dir():
-            raise typer.BadParameter(
-                f"{input_path} is not a directory (--batch requires a directory)"
-            )
+    if input_path.is_dir():
         run_batch(
             input_path,
             lowpass=effective_lowpass,
