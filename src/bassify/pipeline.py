@@ -46,24 +46,26 @@ def run_pipeline(
         force=force,
         original_path=input_path,
     )
-    combined = combine_track(
+    bass_only = combine_track(
         bass,
         input_path,
         windows,
-        output=paths.combined,
+        output=paths.bass_only,
         slice_spec=slice_spec,
         cut_inputs=False,
         force=force,
     )
     remixed = remix_track(
-        combined,
+        bass_only,
         input_path,
         output=paths.remix,
         slice_spec=slice_spec,
         cut_inputs=False,
         force=force,
     )
-    encode_track(combined, input_path, output=paths.combined_m4a, force=force)
+    encode_track(
+        bass_only, input_path, output=paths.bass_only_m4a, force=force, title_suffix="(Bass Only)"
+    )
     encode_track(remixed, input_path, output=paths.remix_m4a, force=force)
     print(f"done: {paths.track_dir}")
 

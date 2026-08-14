@@ -157,10 +157,19 @@ def encode(
     wav_path: Path,
     original_path: Path,
     output: Annotated[Path | None, typer.Option("-o", "--output")] = None,
+    title_suffix: Annotated[
+        str | None,
+        typer.Option(
+            "--title-suffix",
+            help="Append a suffix to the iTunes title tag (e.g. '(Bass Only)').",
+        ),
+    ] = None,
     force: Annotated[bool, typer.Option("--force", help="Overwrite existing output.")] = False,
 ) -> None:
     """Encode a WAV to AAC/.m4a with original metadata + cover art."""
-    encode_mod.encode_track(wav_path, original_path, output=output, force=force)
+    encode_mod.encode_track(
+        wav_path, original_path, output=output, force=force, title_suffix=title_suffix
+    )
 
 
 @app.command()

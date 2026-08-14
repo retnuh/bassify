@@ -11,9 +11,9 @@ class Paths:
     track_dir: Path
     bass: Path
     windows: Path
-    combined: Path
+    bass_only: Path
     remix: Path
-    combined_m4a: Path
+    bass_only_m4a: Path
     remix_m4a: Path
 
 
@@ -41,8 +41,8 @@ def resolve_paths(
         track_dir=track_dir,
         bass=name("bass", "wav"),
         windows=name("silence_windows", "json"),
-        combined=name("combined", "wav"),
+        bass_only=name("bass_only", "wav"),
         remix=name("remix", "wav"),
-        combined_m4a=name("combined", "m4a"),
+        bass_only_m4a=name("bass_only", "m4a"),
         remix_m4a=name("remix", "m4a"),
     )

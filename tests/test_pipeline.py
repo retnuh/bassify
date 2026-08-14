@@ -54,7 +54,7 @@ def test_run_pipeline_call_order_and_cut_inputs(monkeypatch, tmp_path):
         force=False,
     ):  # noqa: E501
         calls.append(("combine_track", {"cut_inputs": cut_inputs}))
-        return paths.combined
+        return paths.bass_only
 
     def fake_remix_track(
         combined_path, original_path, output=None, slice_spec=None, cut_inputs=True, force=False
@@ -64,8 +64,8 @@ def test_run_pipeline_call_order_and_cut_inputs(monkeypatch, tmp_path):
 
     encode_calls = []
 
-    def fake_encode_track(wav_path, original_path, output=None, force=False):
-        encode_calls.append(output)
+    def fake_encode_track(wav_path, original_path, output=None, force=False, title_suffix=None):
+        encode_calls.append((output, title_suffix))
 
     import bassify.pipeline as pipeline_mod
 
@@ -98,10 +98,14 @@ def test_run_pipeline_call_order_and_cut_inputs(monkeypatch, tmp_path):
     # (d) detect got original_path == input_path
     assert calls[1][1]["original_path"] == input_mp3
 
-    # (e) encode called twice with the two m4a targets
+    # (e) encode called twice with the two m4a targets; bass_only gets the title marker
     assert len(encode_calls) == 2
-    assert paths.combined_m4a in encode_calls
-    assert paths.remix_m4a in encode_calls
+    encode_outputs = [ec[0] for ec in encode_calls]
+    encode_suffixes = {ec[0]: ec[1] for ec in encode_calls}
+    assert paths.bass_only_m4a in encode_outputs
+    assert paths.remix_m4a in encode_outputs
+    assert encode_suffixes[paths.bass_only_m4a] == "(Bass Only)"
+    assert encode_suffixes[paths.remix_m4a] is None
 
 
 def test_run_pipeline_passes_lowpass_through(monkeypatch, tmp_path):
@@ -149,14 +153,14 @@ def test_run_pipeline_passes_lowpass_through(monkeypatch, tmp_path):
         cut_inputs=True,
         force=False,
     ):  # noqa: E501
-        return paths.combined
+        return paths.bass_only
 
     def fake_remix_track(
         combined_path, original_path, output=None, slice_spec=None, cut_inputs=True, force=False
     ):  # noqa: E501
         return paths.remix
 
-    def fake_encode_track(wav_path, original_path, output=None, force=False):
+    def fake_encode_track(wav_path, original_path, output=None, force=False, title_suffix=None):
         pass
 
     import bassify.pipeline as pipeline_mod

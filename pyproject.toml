@@ -26,6 +26,9 @@ exclude = ["docs", ".superpowers"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
+[tool.ruff.lint.per-file-ignores]
+"experiments/*.py" = ["F841"]
+
 [tool.pytest.ini_options]
 markers = ["integration: requires ffmpeg on PATH"]
 testpaths = ["tests"]

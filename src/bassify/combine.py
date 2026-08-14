@@ -387,7 +387,7 @@ def combine_track(
     Path to the written combined audio file.
     """
     spec = slice_spec or SliceSpec()
-    out = output or resolve_paths(original_path, slice_spec=spec).combined
+    out = output or resolve_paths(original_path, slice_spec=spec).bass_only
     out.parent.mkdir(parents=True, exist_ok=True)
     if should_skip(out, force):
         print(f"skip (exists): {out}")

@@ -10,9 +10,9 @@ def test_default_layout():
     assert p.track_dir == base
     assert p.bass == base / "01_The Twelve Bar Blues Form_bass.wav"
     assert p.windows == base / "01_The Twelve Bar Blues Form_silence_windows.json"
-    assert p.combined == base / "01_The Twelve Bar Blues Form_combined.wav"
+    assert p.bass_only == base / "01_The Twelve Bar Blues Form_bass_only.wav"
     assert p.remix == base / "01_The Twelve Bar Blues Form_remix.wav"
-    assert p.combined_m4a == base / "01_The Twelve Bar Blues Form_combined.m4a"
+    assert p.bass_only_m4a == base / "01_The Twelve Bar Blues Form_bass_only.m4a"
     assert p.remix_m4a == base / "01_The Twelve Bar Blues Form_remix.m4a"
 
 

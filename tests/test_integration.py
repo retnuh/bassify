@@ -131,7 +131,7 @@ def test_full_pipeline_slice_artifacts(tmp_path: Path, monkeypatch: pytest.Monke
     run_pipeline(src, slice_spec=spec, force=True)
 
     p = resolve_paths(src, slice_spec=spec)
-    artifacts = (p.bass, p.windows, p.combined, p.remix, p.combined_m4a, p.remix_m4a)
+    artifacts = (p.bass, p.windows, p.bass_only, p.remix, p.bass_only_m4a, p.remix_m4a)
     for artifact in artifacts:
         assert artifact.exists(), f"missing artifact: {artifact}"
         assert suffix in artifact.name, f"expected '{suffix}' in '{artifact.name}'"
