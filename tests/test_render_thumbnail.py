@@ -6,7 +6,7 @@ from pathlib import Path
 from PIL import Image
 
 from bassify.render.metadata import TrackMeta
-from bassify.render.thumbnail import build_thumbnail
+from bassify.render.thumbnail import ARTIST_SIZE, NAME_SIZE, build_thumbnail
 
 
 def _art(path: Path) -> None:
@@ -31,3 +31,14 @@ def test_thumbnail_missing_lines_ok(tmp_path: Path):
     out = tmp_path / "thumb.png"
     build_thumbnail(art, out, TrackMeta(None, "Foo", None), _font())
     assert out.exists()
+
+
+def test_thumbnail_no_number_name_larger_than_artist(tmp_path: Path):
+    """When number is absent, name must render at NAME_SIZE (72) and artist at ARTIST_SIZE (40)."""
+    assert NAME_SIZE > ARTIST_SIZE  # sanity: role sizes are ordered correctly
+
+    art = tmp_path / "cover.jpg"
+    _art(art)
+    out = tmp_path / "thumb.png"
+    build_thumbnail(art, out, TrackMeta(None, "Some Name", "Some Artist"), _font())
+    assert Image.open(out).size == (1280, 720)
