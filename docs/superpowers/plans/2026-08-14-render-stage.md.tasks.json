@@ -1,0 +1,75 @@
+{
+  "planPath": "docs/superpowers/plans/2026-08-14-render-stage.md",
+  "tasks": [
+    {
+      "id": 1,
+      "subject": "Task 1: Pillow + PyYAML deps + font",
+      "status": "pending",
+      "description": "**Goal:** Add Pillow and PyYAML as runtime dependencies and vendor an open-licensed TTF as a package resource so text rendering is deterministic across platforms.\n\n**Files:** pyproject.toml; src/bassify/render/__init__.py; src/bassify/render/fonts/{DejaVuSansMono.ttf,LICENSE,__init__.py}\n\n**Acceptance Criteria:** pillow>=10 + pyyaml>=6 in deps; font as wheel package data; TTF loads; uv sync ok; PIL and yaml import.\n\n**Verify:** uv sync && uv run python -c \"import PIL, yaml; ...; print('ok')\" -> ok\n\n```json:metadata\n{\"files\": [\"pyproject.toml\", \"src/bassify/render/__init__.py\", \"src/bassify/render/fonts/DejaVuSansMono.ttf\", \"src/bassify/render/fonts/LICENSE\", \"src/bassify/render/fonts/__init__.py\"], \"verifyCommand\": \"uv sync && uv run python -c \\\"import PIL, yaml; from PIL import ImageFont; from importlib.resources import files; ImageFont.truetype(str(files('bassify.render.fonts')/'DejaVuSansMono.ttf'), 12); print('ok')\\\"\", \"acceptanceCriteria\": [\"pillow>=10 and pyyaml>=6 in dependencies\", \"font shipped as wheel package data\", \"TTF loads via ImageFont.truetype\", \"uv sync succeeds; PIL and yaml import\"], \"modelTier\": \"mechanical\"}\n```"
+    },
+    {
+      "id": 2,
+      "subject": "Task 2: Metadata parsing",
+      "status": "pending",
+      "blockedBy": [1],
+      "description": "**Goal:** Parse track number (filename), title, artist (m4a tags) into TrackMeta, missing fields skipped not fatal.\n\n**Files:** src/bassify/render/metadata.py; tests/test_render_metadata.py\n\n**Acceptance Criteria:** TrackMeta frozen dataclass; number from filename, name/artist from tags; (Bass Only) verbatim; slash-title; missing fields None never raise; display_lines omits None.\n\n**Verify:** uv run pytest tests/test_render_metadata.py -v\n\n```json:metadata\n{\"files\": [\"src/bassify/render/metadata.py\", \"tests/test_render_metadata.py\"], \"verifyCommand\": \"uv run pytest tests/test_render_metadata.py -v\", \"acceptanceCriteria\": [\"TrackMeta frozen dataclass number/name/artist\", \"number from filename, name/artist from tags\", \"(Bass Only) suffix verbatim; slash-title works\", \"missing fields None, never raise\", \"display_lines omits None in order\"], \"modelTier\": \"mechanical\"}\n```"
+    },
+    {
+      "id": 3,
+      "subject": "Task 3: Presets + overrides application",
+      "status": "pending",
+      "blockedBy": [1],
+      "description": "**Goal:** Define three render presets as immutable knob bundles and patch individual knobs from CLI overrides.\n\n**Files:** src/bassify/render/presets.py; tests/test_render_presets.py\n\n**Acceptance Criteria:** RenderPreset frozen dataclass all knobs; PRESETS draft/final/still per table; apply_overrides patches only provided knobs, pure.\n\n**Verify:** uv run pytest tests/test_render_presets.py -v\n\n```json:metadata\n{\"files\": [\"src/bassify/render/presets.py\", \"tests/test_render_presets.py\"], \"verifyCommand\": \"uv run pytest tests/test_render_presets.py -v\", \"acceptanceCriteria\": [\"RenderPreset frozen dataclass with all knobs\", \"PRESETS draft/final/still per table\", \"apply_overrides patches only provided knobs\", \"apply_overrides is pure\"], \"modelTier\": \"mechanical\"}\n```"
+    },
+    {
+      "id": 4,
+      "subject": "Task 4: Overrides sidecar reader",
+      "status": "pending",
+      "blockedBy": [1],
+      "description": "**Goal:** Read data/<collection>.yaml and look up a per-track override dict by stem; missing file not an error.\n\n**Files:** src/bassify/render/overrides.py; tests/test_render_overrides.py\n\n**Acceptance Criteria:** load_overrides returns overrides dict or {} if absent; get_override returns per-stem dict or {}; malformed/empty YAML -> {} never raises.\n\n**Verify:** uv run pytest tests/test_render_overrides.py -v\n\n```json:metadata\n{\"files\": [\"src/bassify/render/overrides.py\", \"tests/test_render_overrides.py\"], \"verifyCommand\": \"uv run pytest tests/test_render_overrides.py -v\", \"acceptanceCriteria\": [\"load_overrides returns overrides dict or {} if file absent\", \"get_override returns per-stem dict or {}\", \"malformed/empty YAML returns {} without raising\"], \"modelTier\": \"mechanical\"}\n```"
+    },
+    {
+      "id": 5,
+      "subject": "Task 5: Key parse/detect/resolve",
+      "status": "pending",
+      "blockedBy": [1],
+      "description": "**Goal:** Parse key string to root pitch-class, detect key via librosa, resolve effective key by precedence (--key > sidecar > detect).\n\n**Files:** src/bassify/render/key.py; tests/test_render_key.py\n\n**Acceptance Criteria:** NOTE_INDEX sharps+flats; root_pc parses E/Bm/F#m/Db, None on bad; resolve_key precedence cli>sidecar>detect, sidecar null forces neutral, detect not called when key present; detect_key returns pitch-class via librosa.\n\n**Verify:** uv run pytest tests/test_render_key.py -v\n\n```json:metadata\n{\"files\": [\"src/bassify/render/key.py\", \"tests/test_render_key.py\"], \"verifyCommand\": \"uv run pytest tests/test_render_key.py -v\", \"acceptanceCriteria\": [\"NOTE_INDEX covers sharps + common flats\", \"root_pc parses E/Bm/F#m/Db, None on bad input\", \"resolve_key precedence cli>sidecar>detect\", \"sidecar key:null forces neutral; detect not called when key present\", \"detect_key returns pitch-class via librosa\"], \"modelTier\": \"standard\"}\n```"
+    },
+    {
+      "id": 6,
+      "subject": "Task 6: Axis-label strip (the #1 risk)",
+      "status": "pending",
+      "blockedBy": [1],
+      "description": "**Goal:** Generate axisfile PNG (width x 48 RGBA, key-aware blues-tiered labels at correct x-positions); unit-test x-formula + tier logic without video.\n\n**Files:** src/bassify/render/labels.py; tests/test_render_labels.py\n\n**Acceptance Criteria:** note_x formula + endpoints + one-octave; AXIS_H==48; note_tier blues tiers for root, all-big when None; build_axis_strip exact WxAXIS_H RGBA alpha-0, works keyless, bundled font fallback.\n\n**Verify:** uv run pytest tests/test_render_labels.py -v\n\n```json:metadata\n{\"files\": [\"src/bassify/render/labels.py\", \"tests/test_render_labels.py\"], \"verifyCommand\": \"uv run pytest tests/test_render_labels.py -v\", \"acceptanceCriteria\": [\"note_x formula + endpoints + one-octave correct\", \"AXIS_H == 48\", \"note_tier blues tiers for root; all-big when root None\", \"build_axis_strip exact WxAXIS_H RGBA alpha-0, works keyless, bundled font fallback\"], \"modelTier\": \"standard\"}\n```"
+    },
+    {
+      "id": 7,
+      "subject": "Task 7: Filtergraph builders (pure)",
+      "status": "pending",
+      "blockedBy": [3],
+      "description": "**Goal:** Build ffmpeg arg lists for full + still renders as pure functions (no subprocess) so error-prone graph details are unit-tested.\n\n**Files:** src/bassify/render/filtergraph.py; tests/test_render_filtergraph.py\n\n**Acceptance Criteria:** WAVE_STRIP_H==80; build_full_args full graph (showcqt+axisfile, vstack wave, playhead, overlays, yuv420p[v], -map 1:a, -shortest, -g fps//2, +faststart); flags drop pieces; build_still_args loop/stillimage/copy/shortest/yuv420p/faststart; FONT_SENTINEL for substitution.\n\n**Verify:** uv run pytest tests/test_render_filtergraph.py -v\n\n```json:metadata\n{\"files\": [\"src/bassify/render/filtergraph.py\", \"tests/test_render_filtergraph.py\"], \"verifyCommand\": \"uv run pytest tests/test_render_filtergraph.py -v\", \"acceptanceCriteria\": [\"WAVE_STRIP_H == 80\", \"build_full_args full graph correct\", \"flags drop waveform/labels/overlays\", \"build_still_args contract\", \"FONT_SENTINEL kept for orchestrator substitution\"], \"modelTier\": \"standard\"}\n```"
+    },
+    {
+      "id": 8,
+      "subject": "Task 8: Waveform + thumbnail generators",
+      "status": "pending",
+      "blockedBy": [2, 7],
+      "description": "**Goal:** Whole-track waveform PNG (showwavespic scale=cbrt) + burned-in thumbnail (Pillow).\n\n**Files:** src/bassify/render/waveform.py; src/bassify/render/thumbnail.py; tests/test_render_thumbnail.py\n\n**Acceptance Criteria:** render_waveform_pic uses scale=cbrt, returns path, raises on failure; build_thumbnail 1280x720 with scrim + centered lines ~2/3 down, missing lines absent never raises.\n\n**Verify:** uv run pytest tests/test_render_thumbnail.py -v\n\n```json:metadata\n{\"files\": [\"src/bassify/render/waveform.py\", \"src/bassify/render/thumbnail.py\", \"tests/test_render_thumbnail.py\"], \"verifyCommand\": \"uv run pytest tests/test_render_thumbnail.py -v\", \"acceptanceCriteria\": [\"render_waveform_pic uses scale=cbrt, returns path, raises on failure\", \"build_thumbnail 1280x720 scrim + centered lines ~2/3 down\", \"missing number/artist lines absent, never raises\"], \"modelTier\": \"standard\"}\n```"
+    },
+    {
+      "id": 9,
+      "subject": "Task 9: Paths + orchestrator",
+      "status": "pending",
+      "blockedBy": [2, 3, 4, 5, 6, 7, 8],
+      "description": "**Goal:** Add render output paths to Paths; implement render_track() (resolve inputs, read tags+cover, resolve key, run needed pre-passes, run ffmpeg, always thumbnail) + render_batch().\n\n**Files:** src/bassify/paths.py; src/bassify/render/__init__.py; tests/test_paths.py\n\n**Acceptance Criteria:** Paths gains 6 render fields emitted with slice suffix; resolve_render_inputs returns bass.wav or raises clear FileNotFoundError; render_track resolves key, runs needed pre-passes, always writes thumbnail, returns output; render_batch skips m4as lacking bass.wav with summary; collection from m4a grandparent.\n\n**Verify:** uv run pytest tests/test_paths.py -v\n\n```json:metadata\n{\"files\": [\"src/bassify/paths.py\", \"src/bassify/render/__init__.py\", \"tests/test_paths.py\"], \"verifyCommand\": \"uv run pytest tests/test_paths.py -v\", \"acceptanceCriteria\": [\"Paths gains 6 render fields with slice suffix\", \"resolve_render_inputs returns bass.wav or raises clear FileNotFoundError\", \"render_track resolves key, runs pre-passes, always thumbnail, returns output\", \"render_batch skips m4as lacking bass.wav with summary\", \"collection from m4a grandparent dir\"], \"modelTier\": \"standard\"}\n```"
+    },
+    {
+      "id": 10,
+      "subject": "Task 10: CLI render command + integration",
+      "status": "pending",
+      "blockedBy": [9],
+      "description": "**Goal:** Wire bassify render into the CLI (single->error fast; dir->batch; --key + knob flags; slice-first nudge), add justfile passthrough + clean, and prove end-to-end with ffmpeg + librosa.\n\n**USER-ORDERED GATE — NON-SKIPPABLE.** Requested by the user (\"prove the whole thing end-to-end\"). MUST NOT be closed by walking around it or substituting a cheaper check. Close only after every acceptanceCriteria is re-validated independently, with output captured.\n\n**Files:** src/bassify/cli.py; justfile; tests/test_render_integration.py\n\n**Acceptance Criteria:** render command with all flags incl --key; single-file missing bass.wav exits non-zero with expected message; directory arg batches with skip summary; final w/o slice prints slice-first tip; just render works + just clean removes axis/wave/cover; integration: still+final valid MP4 video+audio yuv420p, thumbnail 1280x720, vdur==adur, error-fast raises, detect_key returns pitch-class.\n\n**Verify:** uv run pytest tests/test_render_integration.py -v && just check\n\n```json:metadata\n{\"files\": [\"src/bassify/cli.py\", \"justfile\", \"tests/test_render_integration.py\"], \"verifyCommand\": \"uv run pytest tests/test_render_integration.py -v && just check\", \"acceptanceCriteria\": [\"render command with all flags incl --key\", \"single-file missing bass.wav exits non-zero with expected message\", \"directory arg batches with skip summary\", \"final w/o slice prints slice-first tip\", \"just render works; just clean removes axis/wave/cover intermediates\", \"integration: still+final valid MP4 video+audio yuv420p, thumbnail 1280x720, vdur==adur, error-fast raises, detect_key returns pitch-class\"], \"modelTier\": \"standard\", \"userGate\": true, \"tags\": [\"user-gate\"], \"requireEvidenceTokens\": [[\"still\"], [\"final\"]]}\n```"
+    }
+  ],
+  "lastUpdated": "2026-08-14"
+}
