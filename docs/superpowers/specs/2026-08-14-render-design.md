@@ -25,8 +25,9 @@ pipeline (`extract`→`encode`) is assumed already built and its outputs present
   name, and artist) for use as the YouTube thumbnail.
 - Note-name axis labels on the CQT, generated as an `axisfile` PNG (Pillow) so the
   labels stay crisp while the frequency range is framed tightly on the bass.
-- CLI `render` command accepting a single track (error fast if prerequisites are
-  missing) or a directory (render only tracks already processed; skip the rest).
+- CLI `render` command accepting a single `bass_only.m4a` (error fast if the
+  co-located `bass.wav` is missing) or a directory (render only the `bass_only.m4a`
+  files that have a co-located `bass.wav`; skip the rest).
 - Slice previews (`--duration`/`--start`) reusing the existing `SliceSpec`.
 - A bundled default font (deterministic cross-platform), with a `--font` override.
 
@@ -42,35 +43,63 @@ pipeline (`extract`→`encode`) is assumed already built and its outputs present
 
 ## 2. Inputs and prerequisites
 
-`render` consumes artifacts the audio pipeline already produced under `out/`:
+Render works **entirely off the audio pipeline's output folder** — it never
+reaches back to the source track. This matters because the source and outputs live
+in separate trees (in the real setup both are symlinks: `tracks/BluesBass` →
+the source MP3 folder, `out/BluesBass` → a different `Remix` folder), and an
+output folder may be handed around with no source tree present at all. The
+`bass_only.m4a` deliverable is self-contained — it already carries the metadata
+and cover art forwarded by `encode` — so it, not the source MP3, is render's
+primary input.
 
-- `bass.wav` — clean isolated bass. **Drives all visuals.** Chosen because it is
-  silent through spoken gaps, so the CQT and waveform stay clean while count-ins
-  read as clicks over a flat line.
-- `bass_only.<ext>` (`.m4a` preferred, `.wav` fallback) — bass + spoken
-  count-ins, mono. **This is the audio the viewer hears** (`-map 1:a`). Confirmed
-  choice: matches the "learn the bass line" purpose; the remix stereo pan is a
-  player feature, not something to bake into one video.
-- The **source track** (e.g. `tracks/BluesBass/03_Turnarounds.mp3`) — read for
-  metadata tags (title, artist) and embedded cover art (`covr`). The cover art is
-  extracted once and reused as the corner logo, the thumbnail base, and the
-  still-mode background.
+`render`'s argument is the **`bass_only.m4a`** file (or a directory to batch —
+see below). From it render resolves everything:
+
+- **`bass_only.m4a`** (the argument) — bass + spoken count-ins, mono. Supplies:
+  - **the audio the viewer hears** (`-map` to this input); confirmed choice —
+    matches the "learn the bass line" purpose; the remix stereo pan is a player
+    feature, not something to bake into one video.
+  - **metadata** — `title` and `artist` tags (forwarded from the source by
+    `encode`).
+  - **cover art** — the embedded `covr` atom, extracted once and reused as the
+    corner logo, the thumbnail base, and the still-mode background.
+- **`bass.wav`** — clean isolated bass, located **alongside** `bass_only.m4a` in
+  the same directory (same stem, `_bass<sfx>.wav`). **Drives all visuals.** Chosen
+  because it is silent through spoken gaps, so the CQT and waveform stay clean
+  while count-ins read as clicks over a flat line. This is the one WAV render
+  depends on.
+
+**Metadata catch (verified against a real `bass_only.m4a`):**
+- The track **number is not in the m4a tags** (`trkn` is empty), so render parses
+  it from the **filename stem** (`03_Turnarounds_bass_only…` → `03`). Number from
+  filename; name/artist/art from tags. See §5.
+- The `title` tag reads `Turnarounds (Bass Only)` — `encode` appends the
+  `(Bass Only)` marker, and render **keeps it verbatim**: that is literally what
+  the file is, and the marker belongs on the title overlay and thumbnail.
 
 **Length invariant (why it matters here):** the audio pipeline guarantees
 `bass.wav`, `bass_only`, and `remix` have identical frame counts. Render depends
-on this: visuals come from input 0 (`bass.wav`) and audio from input 1
-(`bass_only`); if they differed in length the visuals would drift against the
-sound. Render does not re-establish this; it relies on it and asserts video
-duration == audio duration in tests.
+on this: visuals come from the `bass.wav` input and audio from the `bass_only`
+input; if they differed in length the visuals would drift against the sound.
+Render does not re-establish this; it relies on it and asserts video duration ==
+audio duration in tests.
 
 **Prerequisite handling:**
-- **Single track**, prerequisites missing → **error fast** with a clear message:
-  `No bass output for <track>. Run 'bassify run <track>' first.` Render never
+- **Single file**, the co-located `bass.wav` missing → **error fast** with a clear
+  message naming the expected path, e.g.
+  `No bass.wav alongside <bass_only.m4a>. Run 'bassify run' first.` Render never
   auto-runs the (slow) audio pipeline.
-- **Directory batch** → scan for source files, but render only those whose
-  `bass.wav` + `bass_only` already exist in `out/`. Tracks without prerequisites
-  are **skipped** (reported in a one-line summary), not errors. Explicit
-  single-track requests explain themselves; batch just does what it can.
+- **Directory batch** → scan the tree for `*_bass_only*.m4a`, but render only those
+  with a co-located `bass.wav`. Files without it are **skipped** (reported in a
+  one-line summary), not errors. Explicit single-file requests explain themselves;
+  batch just does what it can.
+
+**Interaction with `just clean`:** `clean` deletes all `*.wav` under `out/`,
+including `bass.wav`. `bass_only.m4a` survives (it is not a WAV), but the CQT
+visual source does not. Rendering after a `clean` therefore requires re-running
+the audio pipeline first to regenerate `bass.wav`. This is the expected behavior
+(WAVs are treated as regenerable intermediates); render's error message points the
+user at it.
 
 ## 3. Architecture
 
@@ -103,21 +132,25 @@ src/bassify/render/
 - All Pillow code (`labels`, `thumbnail`) is isolated from all ffmpeg code
   (`waveform`, the main render in `__init__`).
 
-**Data flow — `render_track(track, preset, audio, slice_spec, overrides, ...)`:**
+**Data flow — `render_track(bass_only_m4a, preset, slice_spec, overrides, ...)`:**
 
 ```
-1. resolve inputs   → bass.wav, bass_only.<ext>, source (covr + tags), out paths
-2. metadata.parse() → TrackMeta(number, name, artist)
+1. resolve inputs   → bass_only.m4a (arg), co-located bass.wav; error if wav absent
+2. metadata.parse() → TrackMeta(number ← filename, name/artist ← m4a tags)
 3. pre-passes (only those the preset needs):
-     extract covr           → <track>_cover.png     (logo + thumbnail + still bg)
-     labels.build_axis_strip()      → <track>_axis.png   (final only)
-     waveform.render_waveform_pic() → <track>_wave.png   (final/draft; not still)
-4. thumbnail.build_thumbnail()      → <track>_thumbnail.png   (always)
-5. filtergraph.build_filtergraph()  → -filter_complex string for the preset
-6. run ffmpeg → <track>_render.mp4  (or <track>_render_still.mp4)
-     visuals ← bass.wav (input 0), audio ← bass_only (input 1, -map 1:a)
+     extract covr from bass_only.m4a → <track>_cover.png  (logo + thumbnail + still bg)
+     labels.build_axis_strip()       → <track>_axis.png   (final only)
+     waveform.render_waveform_pic()  → <track>_wave.png   (final/draft; not still)
+4. thumbnail.build_thumbnail()       → <track>_thumbnail.png   (always)
+5. filtergraph.build_filtergraph()   → -filter_complex string for the preset
+6. run ffmpeg → <track>_render.mp4   (or <track>_render_still.mp4)
+     visuals ← bass.wav input, audio ← bass_only.m4a input (-map)
      progress streamed to the user
 ```
+
+The `<track>` stem for output names is derived from the `bass_only.m4a` filename
+(dropping the `_bass_only<sfx>` portion), so render's artifacts sit in the same
+directory with matching names and slice suffix.
 
 Each stage function builds an ffmpeg (or Pillow) operation and runs it, mirroring
 the audio pipeline's "build command, run via subprocess, return paths" pattern.
@@ -158,20 +191,26 @@ needed.
 
 ## 5. Metadata
 
-Three fields feed both the video title overlay and the thumbnail. Sources, in
-precedence order:
+Three fields feed both the video title overlay and the thumbnail. All are read
+from the **`bass_only.m4a`** (tags + filename) — render never reads the source
+MP3. Sources:
 
-- **Track number** ← leading digits of the filename stem (`03_Turnarounds` → `03`).
-- **Track name** ← the source file's `title` tag; fall back to the filename name
-  portion (everything after the first `_`) only if the tag is absent. The tag is
-  the better source: e.g. track 08's file is `08_Uptown Up_Uptown Down.mp3` but
-  its title tag is `Uptown Up/Uptown Down` — the filename `_` stands in for a
-  slash that is illegal in filenames.
-- **Artist** ← the source file's `artist` tag (e.g. `Ed Friedland`).
+- **Track number** ← leading digits of the filename stem
+  (`03_Turnarounds_bass_only…` → `03`). This is the **only** source: verified that
+  neither the source MP3 nor the `bass_only.m4a` carries a track-number tag
+  (`trkn`/`track` empty), so the filename convention is authoritative and `encode`
+  has nothing to carry forward. (If a future source set does tag track numbers,
+  `encode` could forward it and render could prefer the tag; not needed now.)
+- **Track name** ← the m4a's `title` tag (e.g. `Turnarounds (Bass Only)`, kept
+  verbatim — see §2); fall back to the filename name portion only if the tag is
+  absent. The tag is the better source: e.g. track 08's file is
+  `08_Uptown Up_Uptown Down…` but its title tag is `Uptown Up/Uptown Down` — the
+  filename `_` stands in for a slash that is illegal in filenames.
+- **Artist** ← the m4a's `artist` tag (e.g. `Ed Friedland`).
 
 **Parsing rules:**
-- The number/name split is on the **first `_` only**. Digits before it are the
-  number; the remainder is the filename-name fallback (with `_` → space).
+- The number is the leading digits of the stem, split on the **first `_`**. The
+  remainder (with `_` → space) is only the filename-name *fallback* for the title.
 - This `NN_Name` convention holds for the current track set; it can be adjusted
   later if other sets differ.
 
@@ -235,8 +274,13 @@ render raw CQT quickly for checking freq range and framing.
 ## 8. CLI
 
 ```
-bassify render <track|dir> [options]
+bassify render <bass_only.m4a | dir> [options]
 ```
+
+The argument is the **`bass_only.m4a`** deliverable (render finds the co-located
+`bass.wav`), or a **directory** to batch over every `*_bass_only*.m4a` found in the
+tree (those with a co-located `bass.wav`; others skipped). Render never takes or
+reads the source MP3.
 
 | flag                     | default        | meaning                              |
 |--------------------------|----------------|--------------------------------------|
@@ -256,8 +300,9 @@ bassify render <track|dir> [options]
 - The preset supplies defaults; flags override individual knobs (e.g.
   `render --preset draft --res 1920x1080`).
 - `render` is **standalone** — not part of `run`.
-- **Prerequisites:** single track missing outputs → error fast; directory batch →
-  skip tracks without outputs (one-line summary).
+- **Prerequisites:** single file with no co-located `bass.wav` → error fast;
+  directory batch → skip `bass_only.m4a` files lacking a `bass.wav` (one-line
+  summary).
 
 **Artifacts produced** (under `out/<collection>/<track>/`, slice suffix applied
 where relevant): `<track>_render.mp4` (final/draft), `<track>_render_still.mp4`
@@ -295,9 +340,10 @@ Mirrors the existing split: pure unit tests run without ffmpeg; ffmpeg/Pillow
 tests are marked `integration`.
 
 **Pure unit tests (fast, no ffmpeg):**
-- `test_metadata.py` — `03_x` → number `03`; title/artist from tags; slash-title
-  case (track 08 `Uptown Up/Uptown Down`); missing artist → line skipped, no
-  error; filename with no leading number → number skipped.
+- `test_metadata.py` — number from filename stem (`03_x_bass_only` → `03`);
+  title/artist read from the m4a tags; `(Bass Only)` suffix kept verbatim;
+  slash-title case (track 08 `Uptown Up/Uptown Down`); missing artist tag → line
+  skipped, no error; filename with no leading number → number skipped.
 - `test_filtergraph.py` — builder emits `format=yuv420p` on every branch; `asplit`
   present; even dimensions; `-map 1:a` for audio; the playhead overlay x-formula;
   each preset yields the expected graph shape. Pure string assertions.
@@ -309,14 +355,18 @@ tests are marked `integration`.
   drops the branch; `--res`/`--fps`/`--count` override).
 
 **Integration tests (`integration` marker; ffmpeg + Pillow):**
-- `test_render_integration.py`, on the synthetic 3-segment source already used by
-  `test_integration.py`:
+- `test_render_integration.py` — first run the audio pipeline on the synthetic
+  3-segment source already used by `test_integration.py` to produce the
+  co-located `bass.wav` + `bass_only.m4a` pair (with a `title`/`artist` tag), then
+  render **from the `bass_only.m4a`**:
   - `still` preset → valid MP4 with an audio stream and `+faststart`.
   - `final` preset on a short `--duration` slice (keeps CQT cost tiny) → valid
     MP4 with video + audio streams, `yuv420p`, correct duration.
   - thumbnail PNG produced at 1280×720.
   - **length-sync assertion:** rendered video duration == audio duration (the
     drift guard the whole length invariant exists to protect).
+  - **error-fast case:** pointing render at a `bass_only.m4a` with no co-located
+    `bass.wav` exits non-zero with the expected message.
 - Tests use the bundled font, so they are deterministic on macOS and CI Linux.
 
 ## 12. Dependencies
