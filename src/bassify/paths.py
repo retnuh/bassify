@@ -15,6 +15,12 @@ class Paths:
     remix: Path
     bass_only_m4a: Path
     remix_m4a: Path
+    render_mp4: Path
+    render_still_mp4: Path
+    thumbnail_png: Path
+    axis_png: Path
+    wave_png: Path
+    cover_jpg: Path
 
 
 def resolve_paths(
@@ -45,4 +51,10 @@ def resolve_paths(
         remix=name("remix", "wav"),
         bass_only_m4a=name("bass_only", "m4a"),
         remix_m4a=name("remix", "m4a"),
+        render_mp4=name("render", "mp4"),
+        render_still_mp4=name("render_still", "mp4"),
+        thumbnail_png=name("thumbnail", "png"),
+        axis_png=name("axis", "png"),
+        wave_png=name("wave", "png"),
+        cover_jpg=name("cover", "jpg"),
     )

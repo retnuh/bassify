@@ -28,3 +28,14 @@ def test_slice_suffix_applied():
 def test_custom_out_root():
     p = resolve_paths(Path("tracks/BluesBass/01_x.mp3"), out_root=Path("build"))
     assert p.track_dir == Path("build/BluesBass/01_x")
+
+
+def test_resolve_paths_render_artifacts():
+    from bassify.paths import resolve_paths
+    from bassify.slice import SliceSpec
+
+    p = resolve_paths(Path("tracks/Coll/03_Turnarounds.mp3"), slice_spec=SliceSpec(duration=10))
+    assert p.render_mp4.name == "03_Turnarounds_render_d10s.mp4"
+    assert p.render_still_mp4.name == "03_Turnarounds_render_still_d10s.mp4"
+    assert p.thumbnail_png.name == "03_Turnarounds_thumbnail_d10s.png"
+    assert p.cover_jpg.name == "03_Turnarounds_cover_d10s.jpg"
