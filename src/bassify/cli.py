@@ -143,7 +143,7 @@ def remix(
     output: Annotated[Path | None, typer.Option("-o", "--output")] = None,
     duration: DurationOpt = None,
     start: StartOpt = None,
-    force: bool = typer.Option(False, "--force"),
+    force: Annotated[bool, typer.Option("--force", help="Overwrite existing output.")] = False,
 ) -> None:
     """Build pannable stereo (L=combined, R=original right) -> remix WAV."""
     spec = SliceSpec(duration=duration, start=start)
