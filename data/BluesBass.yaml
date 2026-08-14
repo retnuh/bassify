@@ -1,0 +1,48 @@
+# Per-track render overrides for the BluesBass collection.
+#
+# Keyed by the SOURCE track stem (the filename without extension, e.g.
+# "19_Walking Jazz Blues In F"). Render looks up each track here before falling
+# back to librosa auto-detection.
+#
+# Fields (all optional; schema kept extensible for future freq_range/title):
+#   key: musical key as "<root>" or "<root>m" (e.g. "F", "A", "Bm", "F#m").
+#        Only the ROOT drives the axis label tiers (blues-scale sizing); the
+#        major/minor quality is recorded for posterity but not used for sizing.
+#        Set to null (or omit) for genuinely multi-key tracks — render then
+#        falls back to neutral, equal-weight labels (no blues tiers), which is
+#        the correct behaviour when no single key applies.
+#
+# These entries were taken from the course book (Aug 2026) to correct
+# auto-detection misses.
+
+overrides:
+  # Auto-detected A min, but the title says F and it is in F. Root F.
+  "19_Walking Jazz Blues In F":
+    key: F
+
+  # Short track in A. Auto-detected C# maj (lowest confidence, r=0.60).
+  "12_Box Shape Examples":
+    key: A
+
+  # Short track; F major but every chord is F7, so all notes are root/5th/b7/
+  # octave with no 3rd — auto-detect reasonably read it as F min. Root F.
+  "08_Uptown Up_Uptown Down":
+    key: F
+
+  # "The Thrill Is Gone" — the famous B-minor tune. Auto-detected F# maj (the
+  # 5th). Root B.
+  "40_The Thrill Is Gone":
+    key: Bm
+
+  # F# minor (part of it touches F# major; we use F# minor). Root F#.
+  "41_All Your Love":
+    key: F#m
+
+  # Teaching track cycling intros through multiple keys (A -> G -> C -> F# -> C).
+  # No single key applies -> keyless -> neutral labels.
+  "26_Intros From The Five":
+    key: null
+
+  # Teaching track cycling intros through multiple keys. Keyless -> neutral labels.
+  "27_Intros From The Four":
+    key: null

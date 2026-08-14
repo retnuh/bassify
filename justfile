@@ -40,6 +40,9 @@ encode *ARGS:
 run *ARGS:
     uv run bassify run {{ARGS}}
 
+render *ARGS:
+    uv run bassify render {{ARGS}}
+
 # Remove generated scratch: *.wav under out/ + experiments scratch (pass --json to also remove out/*.json)
 clean dir="out" *FLAGS='':
     #!/usr/bin/env bash
@@ -48,6 +51,7 @@ clean dir="out" *FLAGS='':
     find experiments -type f -name '*.wav' -delete 2>/dev/null || true
     find experiments -type f -name '_*.txt' -delete 2>/dev/null || true
     find experiments -type f -name 'CHECKPOINT_*' -delete 2>/dev/null || true
+    find "{{dir}}" -type f \( -name '*_axis.png' -o -name '*_wave.png' -o -name '*_cover.jpg' \) -delete
     if echo "{{FLAGS}}" | grep -q -- --json; then
         find out -type f -name '*.json' -delete 2>/dev/null || true
     fi
