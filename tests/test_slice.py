@@ -96,6 +96,7 @@ def test_from_filename_suffix_round_trip_d2_5s():
 
 def test_from_filename_accepts_path_object():
     from pathlib import Path
+
     assert SliceSpec.from_filename(Path("track_d30s.wav")) == SliceSpec(duration=30.0)
 
 

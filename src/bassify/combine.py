@@ -416,6 +416,7 @@ def combine_track(
     # Duration-mismatch warning only when nothing is being cut (eff is empty).
     if eff.is_empty():
         from bassify.ffmpeg import ffprobe_duration
+
         db = ffprobe_duration(bass_path)
         do = ffprobe_duration(original_path)
         if abs(db - do) > 0.1:

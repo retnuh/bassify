@@ -33,6 +33,7 @@ def remix_track(
     # Duration-mismatch warning only when nothing is being cut (eff is empty).
     if eff.is_empty():
         from bassify.ffmpeg import ffprobe_duration
+
         dc = ffprobe_duration(combined_path)
         do = ffprobe_duration(original_path)
         if abs(dc - do) > 0.1:

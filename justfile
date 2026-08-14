@@ -11,10 +11,15 @@ lint:
 fmt:
     uv run ruff format .
 
+# Verify formatting without modifying files (what CI enforces)
+fmt-check:
+    uv run ruff format --check .
+
 test:
     uv run pytest -q
 
-check: lint test
+# The full gate — CI runs exactly this (lint + format check + tests)
+check: lint fmt-check test
 
 # Stage passthroughs (args forwarded), e.g. `just run tracks/BluesBass/01_*.mp3`
 extract *ARGS:

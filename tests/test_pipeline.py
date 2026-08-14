@@ -28,8 +28,10 @@ def test_run_pipeline_call_order_and_slice_threading(monkeypatch, tmp_path):
         force=False,
     ):
         calls.append(
-            ("extract_bass", {"cut_inputs": cut_inputs, "lowpass": lowpass,
-                              "slice_spec": slice_spec})
+            (
+                "extract_bass",
+                {"cut_inputs": cut_inputs, "lowpass": lowpass, "slice_spec": slice_spec},
+            )
         )
         return paths.bass
 
@@ -60,9 +62,7 @@ def test_run_pipeline_call_order_and_slice_threading(monkeypatch, tmp_path):
         calls.append(("combine_track", {"slice_spec": slice_spec}))
         return paths.bass_only
 
-    def fake_remix_track(
-        combined_path, original_path, output=None, slice_spec=None, force=False
-    ):
+    def fake_remix_track(combined_path, original_path, output=None, slice_spec=None, force=False):
         calls.append(("remix_track", {"slice_spec": slice_spec}))
         return paths.remix
 
@@ -160,9 +160,7 @@ def test_run_pipeline_passes_lowpass_through(monkeypatch, tmp_path):
     ):
         return paths.bass_only
 
-    def fake_remix_track(
-        combined_path, original_path, output=None, slice_spec=None, force=False
-    ):
+    def fake_remix_track(combined_path, original_path, output=None, slice_spec=None, force=False):
         return paths.remix
 
     def fake_encode_track(wav_path, original_path, output=None, force=False, title_suffix=None):
