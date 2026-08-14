@@ -28,7 +28,9 @@ def test_full_final_has_all_pieces():
     )
     assert all(isinstance(a, str) for a in args)
     fx = _fx(args)
-    assert "showcqt=" in fx and "basefreq=65.41" in fx and "endfreq=261.63" in fx
+    # showcqt frame is padded a half-semitone each side (see labels.padded_frame),
+    # so the raw 65.41/261.63 become the widened endpoints.
+    assert "showcqt=" in fx and "basefreq=63.5479" in fx and "endfreq=269.296" in fx
     assert "axis_h=48" in fx and "axisfile=a.png" in fx
     assert "1280x640" in fx  # CQT height = 720 - 80
     assert "scale=1280:80" in fx  # wave strip

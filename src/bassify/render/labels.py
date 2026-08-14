@@ -10,6 +10,20 @@ _NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
 AXIS_H = 48  # fixed strip height; passed to showcqt as axis_h so the PNG maps 1:1
 
+# Half-semitone margin added to each side of the CQT frame. Keeps the endpoint
+# notes (e.g. C2/C4) off the very screen edges where their labels clip. Applied
+# identically to showcqt (filtergraph) and to note_x here so the two stay aligned.
+FRAME_PAD = 2 ** (0.5 / 12)
+
+
+def padded_frame(basefreq: float, endfreq: float) -> tuple[float, float]:
+    """The CQT display frame: the musical range widened a half-semitone each side."""
+    return basefreq / FRAME_PAD, endfreq * FRAME_PAD
+
+
+def _midi(freq: float) -> int:
+    return round(12 * math.log2(freq / 440.0) + 69)
+
 _BLUES_BIG = frozenset({0, 3, 5, 7, 10})  # 1, b3, 4, 5, b7
 _FLAT5 = frozenset({6})  # b5 — blue note (red, medium)
 
@@ -65,11 +79,14 @@ def build_axis_strip(
     fonts = {t: _font(font_path, s) for t, s in _SIZE.items()}
     img = Image.new("RGBA", (width, axis_h), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
-    for midi in range(12, 108):  # C0..B7
+    pad_lo, pad_hi = padded_frame(basefreq, endfreq)
+    # Label the musical range by MIDI bounds (avoids float rounding dropping the
+    # bottom endpoint) and drop the top note — the octave-boundary C otherwise
+    # sits at the extreme right and its label clips off-screen.
+    lo_midi, hi_midi = _midi(basefreq), _midi(endfreq)
+    for midi in range(lo_midi, hi_midi):  # half-open: bottom included, top dropped
         f = _midi_freq(midi)
-        if f < basefreq or f > endfreq:
-            continue
-        x = note_x(f, basefreq, endfreq, width)
+        x = note_x(f, pad_lo, pad_hi, width)
         pc = midi % 12
         tier = note_tier(pc, root_pc)
         is_root = root_pc is not None and pc == root_pc

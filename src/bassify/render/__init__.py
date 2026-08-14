@@ -166,6 +166,16 @@ def render_track(
         tf.write(" ".join(x for x in (meta.number, meta.name) if x))
         title_file = Path(tf.name)
 
+    # showcqt's axisfile= lives inside the -filter_complex string, where ffmpeg's
+    # own graph parser treats an apostrophe (e.g. "Messin'") as a quote and
+    # mangles the path — so the axis silently vanishes. Hand it a safe-named
+    # tempfile copy instead (same reason title_file above is a tempfile).
+    axis_safe: Path | None = None
+    if axis_png is not None:
+        with tempfile.NamedTemporaryFile("wb", suffix=".png", delete=False) as af:
+            af.write(axis_png.read_bytes())
+            axis_safe = Path(af.name)
+
     try:
         args = build_full_args(
             preset,
@@ -173,7 +183,7 @@ def render_track(
             bass_only=bass_only_m4a,
             wave_png=wave_png,
             cover_png=out["cover"] if preset.overlays else None,
-            axis_png=axis_png,
+            axis_png=axis_safe,
             title_file=title_file if preset.overlays else None,
             duration=duration,
             out_path=out["render"],
@@ -182,6 +192,8 @@ def render_track(
         run_ffmpeg(args)
     finally:
         title_file.unlink(missing_ok=True)
+        if axis_safe is not None:
+            axis_safe.unlink(missing_ok=True)
     return out["render"]
 
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from bassify.render.labels import padded_frame
 from bassify.render.presets import RenderPreset
 
 WAVE_STRIP_H = 80  # fixed waveform strip height; CQT takes the rest of preset.height
@@ -62,9 +63,12 @@ def build_full_args(
     w = preset.width
     cqt_h = _cqt_height(preset)
     axis = f":axis_h=48:axisfile={axis_png}" if (preset.labels and axis_png is not None) else ""
+    # Widen the CQT frame a half-semitone each side so the endpoint notes sit
+    # off the screen edges (matches the axis PNG's note_x, which pads the same).
+    pad_lo, pad_hi = padded_frame(preset.basefreq, preset.endfreq)
     parts = [
         f"[0:a]showcqt=s={w}x{cqt_h}:fps={preset.fps}:count={preset.count}:"
-        f"basefreq={preset.basefreq:g}:endfreq={preset.endfreq:g}:"
+        f"basefreq={pad_lo:g}:endfreq={pad_hi:g}:"
         f"bar_g=2:sono_g=3:bar_v=30:sono_v=30:tc=0.17{axis},format=yuv420p[cqt]"
     ]
     inputs = ["-i", str(bass_wav), "-i", str(bass_only)]
