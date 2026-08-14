@@ -46,6 +46,24 @@ def test_full_draft_drops_labels_waveform_overlays():
     assert "axisfile=" not in fx and "drawtext=" not in fx and "vstack" not in fx
 
 
+def test_full_no_waveform_but_overlays_cover_index_2():
+    from bassify.render.presets import apply_overrides
+    preset = apply_overrides(PRESETS["final"], no_waveform=True)  # overlays still True
+    args = build_full_args(
+        preset,
+        bass_wav=Path("b.wav"), bass_only=Path("bo.m4a"),
+        wave_png=None, cover_png=Path("c.jpg"), axis_png=Path("a.png"),
+        title_file=Path("t.txt"), duration=10.0, out_path=Path("o.mp4"),
+    )
+    fx = args[args.index("-filter_complex") + 1]
+    # no waveform strip / vstack
+    assert "vstack" not in fx and "scale=1280:80" not in fx
+    # cover is input index 2 (bass=0, bass_only=1, no wave, cover=2)
+    assert "[2:v]scale=80" in fx  # logo scale references index 2, not 3
+    # CQT fills full height (no strip subtracted) — 720, not 640
+    assert "1280x720" in fx
+
+
 def test_still_args_contract():
     args = build_still_args(
         PRESETS["still"], cover_png=Path("c.jpg"),
