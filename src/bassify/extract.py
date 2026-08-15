@@ -39,11 +39,11 @@ def build_filter(lowpass: float | None) -> str:
     return f
 
 
-def estimate_delay(l: np.ndarray, r: np.ndarray, sr: int, max_shift_seconds: float = 0.05) -> float:
-    """Estimate the delay (in samples) by which ``r`` lags ``l``.
+def estimate_delay(L: np.ndarray, r: np.ndarray, sr: int, max_shift_seconds: float = 0.05) -> float:
+    """Estimate the delay (in samples) by which ``r`` lags ``L``.
 
     Positive return value means r's content appears that many samples later
-    than in l (r must be shifted earlier / advanced to align with l). Uses
+    than in L (r must be shifted earlier / advanced to align with L). Uses
     cross-correlation restricted to +/- max_shift_seconds around zero lag to
     find the integer-sample peak, then refines to sub-sample precision by
     maximizing the actual alignment score (via apply_fractional_delay) in a
@@ -57,8 +57,8 @@ def estimate_delay(l: np.ndarray, r: np.ndarray, sr: int, max_shift_seconds: flo
     maximizing alignment score sidesteps that shape assumption entirely.
     """
     max_shift = max(1, int(max_shift_seconds * sr))
-    n = min(len(l), len(r))
-    a = l[:n]
+    n = min(len(L), len(r))
+    a = L[:n]
     b = r[:n]
 
     corr = correlate(b, a, mode="full")
@@ -73,8 +73,16 @@ def estimate_delay(l: np.ndarray, r: np.ndarray, sr: int, max_shift_seconds: flo
     peak_idx = int(np.argmax(window))
     coarse_lag = float(window_lags[peak_idx])
 
+    # Precompute b's spectrum once -- it's invariant across the optimizer's
+    # iterations, only the phase-shift term depends on the trial delay.
+    spectrum_b = np.fft.rfft(b)
+    freqs_b = np.fft.rfftfreq(len(b))
+
     def neg_alignment(delay: float) -> float:
-        aligned = apply_fractional_delay(b, -delay)
+        # Matches apply_fractional_delay(b, -delay): delay_samples=-delay, so
+        # phase_shift = exp(-2j*pi*freqs*(-delay)) = exp(+2j*pi*freqs*delay).
+        phase_shift = np.exp(2j * np.pi * freqs_b * delay)
+        aligned = np.fft.irfft(spectrum_b * phase_shift, n=len(b))
         return -float(np.dot(a, aligned))
 
     result = minimize_scalar(
@@ -90,8 +98,12 @@ def apply_fractional_delay(x: np.ndarray, delay_samples: float) -> np.ndarray:
     """Shift ``x`` by ``delay_samples`` using an FFT-based fractional shift.
 
     Positive delay_samples shifts x LATER (toward higher indices). Output is
-    the same length as x; content shifted past an edge is dropped and the
-    vacated edge is implicitly zero-filled by the FFT round-trip.
+    the same length as x. This is a CIRCULAR shift (the DFT time-shift
+    theorem): content shifted past one edge wraps around to the opposite
+    edge, it is not zero-filled. Fine for the callers in this module, which
+    only ever shift by a tiny fraction of the signal length and don't care
+    about the wrapped few samples at the edges -- pre-pad the input with
+    zeros first if true linear-shift semantics are needed.
     """
     n = len(x)
     if n == 0:
@@ -155,20 +167,20 @@ def fit_projection_gains(
     return numerator / (denominator + eps)
 
 
-def project_clean_bass(l: np.ndarray, r: np.ndarray, sr: int) -> np.ndarray:
-    """Cancel non-bass leakage from l using r as reference, returning a bass
-    estimate the same length as l.
+def project_clean_bass(L: np.ndarray, r: np.ndarray, sr: int) -> np.ndarray:
+    """Cancel non-bass leakage from L using r as reference, returning a bass
+    estimate the same length as L.
 
-    Steps: time-align r to l, STFT both, fit a per-bin complex projection
+    Steps: time-align r to L, STFT both, fit a per-bin complex projection
     gain from bass-free frames, subtract the projected reference, inverse-STFT.
     Raises InsufficientCalibrationData (propagated from fit_projection_gains)
     if the track doesn't have enough bass-free content to trust the fit.
     """
-    n = len(l)
-    delay = estimate_delay(l, r, sr)
+    n = len(L)
+    delay = estimate_delay(L, r, sr)
     r_aligned = apply_fractional_delay(r, -delay)
 
-    freqs, _, L_stft = stft(l, fs=sr, nperseg=STFT_NPERSEG, noverlap=STFT_NOVERLAP)
+    freqs, _, L_stft = stft(L, fs=sr, nperseg=STFT_NPERSEG, noverlap=STFT_NOVERLAP)
     _, _, R_stft = stft(r_aligned, fs=sr, nperseg=STFT_NPERSEG, noverlap=STFT_NOVERLAP)
 
     mask = bass_free_frame_mask(L_stft, freqs)
@@ -257,9 +269,9 @@ def _extract_bass_clean(
         run_ffmpeg(decode_args)
 
         l_r, sr = sf.read(str(tmp_stereo), dtype="float64", always_2d=True)
-        l, r = l_r[:, 0], l_r[:, 1]
+        L, r = l_r[:, 0], l_r[:, 1]
 
-        bass = project_clean_bass(l, r, sr)
+        bass = project_clean_bass(L, r, sr)
         sf.write(str(tmp_bass), bass, sr, subtype="PCM_24")
 
         try:

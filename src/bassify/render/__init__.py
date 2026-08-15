@@ -52,7 +52,8 @@ def _resolve_font(font: str | None) -> str:
 def resolve_render_inputs(bass_only_m4a: Path) -> Path:
     """Return the co-located bass_clean.wav for a bass_only.m4a, or raise if missing."""
     bass_only_m4a = Path(bass_only_m4a)
-    bass_wav = bass_only_m4a.with_name(bass_only_m4a.stem.replace("_bass_only", "_bass_clean") + ".wav")
+    stem = bass_only_m4a.stem.replace("_bass_only", "_bass_clean")
+    bass_wav = bass_only_m4a.with_name(stem + ".wav")
     if not bass_wav.exists():
         raise FileNotFoundError(
             f"No bass_clean.wav alongside {bass_only_m4a}. Run 'bassify run' first "
@@ -220,5 +221,6 @@ def render_batch(directory: Path, **kwargs) -> None:
             print(f"  ERROR rendering {m.name}: {exc}")
             failed += 1
     print(
-        f"render batch done: {rendered} rendered, {skipped} skipped (no bass_clean.wav), {failed} failed"
+        f"render batch done: {rendered} rendered, {skipped} skipped (no bass_clean.wav), "
+        f"{failed} failed"
     )

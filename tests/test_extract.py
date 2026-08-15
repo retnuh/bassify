@@ -34,12 +34,12 @@ def test_estimate_delay_recovers_known_integer_shift():
     sr = 8000
     rng = np.random.default_rng(0)
     n = sr * 2
-    l = rng.standard_normal(n)
-    shift = 37  # samples; r lags l by this many samples
+    L = rng.standard_normal(n)
+    shift = 37  # samples; r lags L by this many samples
     r = np.zeros(n)
-    r[shift:] = l[: n - shift]
+    r[shift:] = L[: n - shift]
 
-    delay = estimate_delay(l, r, sr)
+    delay = estimate_delay(L, r, sr)
 
     assert abs(delay - shift) < 0.5
 
@@ -48,16 +48,16 @@ def test_align_round_trip_recovers_fractional_delay():
     sr = 8000
     rng = np.random.default_rng(1)
     n = sr * 2
-    l = rng.standard_normal(n)
-    true_delay = 12.7  # fractional samples; r lags l by this much
-    r = apply_fractional_delay(l, true_delay)
+    L = rng.standard_normal(n)
+    true_delay = 12.7  # fractional samples; r lags L by this much
+    r = apply_fractional_delay(L, true_delay)
 
-    estimated = estimate_delay(l, r, sr)
+    estimated = estimate_delay(L, r, sr)
     assert abs(estimated - true_delay) < 0.1
 
     corrected = apply_fractional_delay(r, -estimated)
-    edge = 50  # ignore edges: the shift zero-pads them
-    corr_coef = np.corrcoef(l[edge:-edge], corrected[edge:-edge])[0, 1]
+    edge = 50  # ignore edges: the shift wraps circularly there, not zero-fill
+    corr_coef = np.corrcoef(L[edge:-edge], corrected[edge:-edge])[0, 1]
     assert corr_coef > 0.99
 
 
@@ -117,14 +117,14 @@ def test_project_clean_bass_cancels_reference_leakage_and_preserves_length():
     # regardless of alignment sign -- see task-4-report.md for the empirical
     # sweep that found this threshold).
     true_delay = 250.7
-    l = bass + guitar
+    L = bass + guitar
     r = true_h * apply_fractional_delay(guitar, true_delay)
 
-    b_hat = project_clean_bass(l, r, sr)
+    b_hat = project_clean_bass(L, r, sr)
 
     assert len(b_hat) == n
 
-    naive_residual = l - r  # naive-subtraction residual, unaligned and ungained
+    naive_residual = L - r  # naive-subtraction residual, unaligned and ungained
     residual_after = np.std(b_hat[n // 2 :])
     residual_before = np.std(naive_residual[n // 2 :])
     assert residual_after < 0.1 * residual_before
@@ -183,7 +183,7 @@ def test_extract_bass_clean_falls_back_when_asupercut_unavailable(tmp_path, monk
     fake_stereo = np.zeros((100, 2))
     monkeypatch.setattr(extract_mod.sf, "read", lambda *a, **k: (fake_stereo, 8000))
     monkeypatch.setattr(extract_mod.sf, "write", lambda *a, **k: None)
-    monkeypatch.setattr(extract_mod, "project_clean_bass", lambda l, r, sr: np.zeros(100))
+    monkeypatch.setattr(extract_mod, "project_clean_bass", lambda left, r, sr: np.zeros(100))
 
     out_clean = tmp_path / "bass_clean.wav"
     extract_mod._extract_bass_clean(tmp_path / "input.wav", out_clean, SliceSpec(), True)

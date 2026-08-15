@@ -35,20 +35,22 @@ def extract(
         float,
         typer.Option(
             "--lowpass",
-            help="Low-pass cutoff Hz to tame subtraction residue (default: 800). Use --no-lowpass to disable.",  # noqa: E501
+            help="Low-pass cutoff Hz to tame subtraction residue on the dirty bass.wav (default: 800; used for silence detection only -- bass_clean.wav has its own fixed 800Hz backstop). Use --no-lowpass to disable.",  # noqa: E501
         ),
     ] = extract_mod.DEFAULT_LOWPASS,
     no_lowpass: Annotated[
         bool,
         typer.Option(
-            "--no-lowpass", help="Disable the low-pass filter entirely (overrides --lowpass)."
-        ),  # noqa: E501
+            "--no-lowpass",
+            help="Disable the low-pass filter on the dirty bass.wav entirely (overrides --lowpass; does not affect bass_clean.wav).",  # noqa: E501
+        ),
     ] = False,
     duration: DurationOpt = None,
     start: StartOpt = None,
     force: Annotated[bool, typer.Option("--force", help="Overwrite existing output.")] = False,
 ) -> None:
-    """L-R subtraction -> mono bass WAV.
+    """L-R subtraction -> mono bass WAV, plus a per-bin-projection-cleaned
+    bass_clean.wav (always produced alongside, not affected by --lowpass).
 
     Pass a single audio file, or a directory to extract every audio file in it
     (non-recursive, sorted, per-track error handling). Handy for regenerating
@@ -189,14 +191,15 @@ def run(
         float,
         typer.Option(
             "--lowpass",
-            help="Low-pass cutoff Hz for extract (default: 800). Use --no-lowpass to disable.",
+            help="Low-pass cutoff Hz for the dirty bass.wav used in extract (default: 800; silence detection only -- bass_clean.wav has its own fixed 800Hz backstop). Use --no-lowpass to disable.",  # noqa: E501
         ),
     ] = extract_mod.DEFAULT_LOWPASS,
     no_lowpass: Annotated[
         bool,
         typer.Option(
-            "--no-lowpass", help="Disable the low-pass filter entirely (overrides --lowpass)."
-        ),  # noqa: E501
+            "--no-lowpass",
+            help="Disable the low-pass filter on the dirty bass.wav entirely (overrides --lowpass; does not affect bass_clean.wav).",  # noqa: E501
+        ),
     ] = False,
     threshold: Annotated[
         float, typer.Option("--threshold", help="silencedetect noise floor in dB.")

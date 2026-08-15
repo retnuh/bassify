@@ -5,7 +5,11 @@ import json
 import numpy as np
 import soundfile as sf
 
-from bassify.metrics import compute_absolute_leak_db, compute_music_band_delta_db
+from bassify.metrics import (
+    _masked_bandpass_rms,
+    compute_absolute_leak_db,
+    compute_music_band_delta_db,
+)
 
 
 def _write_windows(tmp_path, windows):
@@ -92,3 +96,31 @@ def test_absolute_leak_reflects_how_much_original_high_band_survives(tmp_path):
     assert leak_full < -15  # fully cleaned -> most of original's high-band gone
     assert leak_partial > leak_full  # partial cleanup leaves more, so a less negative score
     assert leak_partial < -1  # still some reduction happened
+
+
+def test_masked_bandpass_rms_filters_before_masking_avoids_boundary_ringing():
+    """A two-segment mask (silence gap in the middle) with a genuine phase
+    discontinuity at each boundary must not leak into the high band.
+
+    Masking BEFORE filtering would concatenate two non-adjacent segments
+    into one array; the resulting step discontinuity would make a highpass
+    filter ring and inflate the high-band RMS. Filtering the full
+    contiguous signal first (this function's actual approach) avoids that.
+    """
+    sr = 8000
+    n = sr * 6
+    music_mask = np.ones(n, dtype=bool)
+    music_mask[2 * sr : 3 * sr] = False  # silence gap in the middle
+
+    # Pure low-frequency signal (well under band_cutoff) with a genuine phase
+    # jump at the gap boundaries -- if masking happened before filtering,
+    # concatenating the two non-adjacent segments would create a step
+    # discontinuity the highpass filter rings on.
+    t = np.arange(n) / sr
+    y = np.zeros(n)
+    y[: 2 * sr] = 0.5 * np.sin(2 * np.pi * 80 * t[: 2 * sr])
+    y[3 * sr :] = 0.5 * np.sin(2 * np.pi * 80 * t[3 * sr :] + np.pi / 2)  # phase jump
+
+    high_rms = _masked_bandpass_rms(y, music_mask, sr, low=800.0, high=None)
+
+    assert high_rms < 0.01  # pure 80Hz content -> ~nothing above 800Hz

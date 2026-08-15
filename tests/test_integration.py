@@ -262,9 +262,7 @@ def test_clean_bass_reduces_leak_on_known_bad_tracks(
         f"abs leak vs original={absolute_leak:.1f}dB"
     )
 
-    assert high_delta < 0, (
-        f"{track_name}: high-band leak did not improve (Δ={high_delta:.1f}dB)"
-    )
+    assert high_delta < 0, f"{track_name}: high-band leak did not improve (Δ={high_delta:.1f}dB)"
     assert abs(low_delta) < 5.0, (
         f"{track_name}: bass itself moved too much (low-band Δ={low_delta:.1f}dB) "
         "-- projection may be damaging bass, not just cancelling guitar"

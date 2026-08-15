@@ -9,10 +9,20 @@ import soundfile as sf
 from scipy.signal import butter, sosfiltfilt
 
 
-def _bandpass_rms(y: np.ndarray, sr: int, low: float | None, high: float | None) -> float:
-    """RMS of y restricted to [low, high) Hz. Either bound may be None for an
-    open-ended highpass/lowpass. Zero-phase (sosfiltfilt) to avoid ringing
-    artifacts skewing the RMS.
+def _masked_bandpass_rms(
+    y: np.ndarray, mask: np.ndarray, sr: int, low: float | None, high: float | None
+) -> float:
+    """RMS of y restricted to [low, high) Hz, computed only over samples
+    where mask is True. Either bound may be None for an open-ended
+    highpass/lowpass. Zero-phase (sosfiltfilt) to avoid ringing artifacts
+    skewing the RMS.
+
+    Filters the FULL signal first, then applies the mask -- filtering AFTER
+    masking would run the filter over a discontinuous concatenation of
+    non-adjacent samples at each mask boundary (boolean fancy-indexing
+    joins samples that weren't neighbors in real time), injecting spurious
+    high-band energy from the resulting step discontinuities. Filtering the
+    full contiguous signal first avoids that entirely.
     """
     if len(y) == 0:
         return 0.0
@@ -27,7 +37,10 @@ def _bandpass_rms(y: np.ndarray, sr: int, low: float | None, high: float | None)
     else:
         sos = butter(4, [low, high], btype="bandpass", fs=sr, output="sos")
         filtered = sosfiltfilt(sos, y)
-    return float(np.sqrt(np.mean(filtered**2)))
+    masked = filtered[mask]
+    if len(masked) == 0:
+        return 0.0
+    return float(np.sqrt(np.mean(masked**2)))
 
 
 def _music_mask(n: int, sr: int, windows_path: Path) -> np.ndarray:
@@ -77,13 +90,10 @@ def compute_music_band_delta_db(
 
     music_mask = _music_mask(n, sr, windows_path)
 
-    yd_music = yd[music_mask]
-    yc_music = yc[music_mask]
-
-    dirty_high = _bandpass_rms(yd_music, sr, low=band_cutoff, high=None)
-    clean_high = _bandpass_rms(yc_music, sr, low=band_cutoff, high=None)
-    dirty_low = _bandpass_rms(yd_music, sr, low=None, high=band_cutoff)
-    clean_low = _bandpass_rms(yc_music, sr, low=None, high=band_cutoff)
+    dirty_high = _masked_bandpass_rms(yd, music_mask, sr, low=band_cutoff, high=None)
+    clean_high = _masked_bandpass_rms(yc, music_mask, sr, low=band_cutoff, high=None)
+    dirty_low = _masked_bandpass_rms(yd, music_mask, sr, low=None, high=band_cutoff)
+    clean_low = _masked_bandpass_rms(yc, music_mask, sr, low=None, high=band_cutoff)
 
     high_delta = 20 * np.log10(max(clean_high, 1e-12) / max(dirty_high, 1e-12))
     low_delta = 20 * np.log10(max(clean_low, 1e-12) / max(dirty_low, 1e-12))
@@ -119,8 +129,8 @@ def compute_absolute_leak_db(
 
     music_mask = _music_mask(n, sr, windows_path)
 
-    clean_high = _bandpass_rms(yc[music_mask], sr, low=band_cutoff, high=None)
-    original_high = _bandpass_rms(yo[music_mask], sr, low=band_cutoff, high=None)
+    clean_high = _masked_bandpass_rms(yc, music_mask, sr, low=band_cutoff, high=None)
+    original_high = _masked_bandpass_rms(yo, music_mask, sr, low=band_cutoff, high=None)
 
     ratio = clean_high / max(original_high, 1e-12)
     return float(20 * np.log10(max(ratio, 1e-12)))
