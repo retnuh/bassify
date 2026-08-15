@@ -134,6 +134,93 @@ def test_extract_bass_produces_frame_exact_dirty_and_clean(tmp_path: Path) -> No
 
 
 @pytest.mark.skipif(ffmpeg_missing, reason=skip_reason)
+def test_bass_clean_backstop_attenuates_above_the_cutoff(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The written bass_clean.wav must actually be lowpassed.
+
+    No test asserted this before, which is why the asupercut backstop could
+    fail on every single track without anything going red. A 2000 Hz tone
+    sits well past the 800 Hz corner; at 12 poles it should be crushed
+    relative to a 200 Hz tone of equal input amplitude. In the final fixture
+    the shared 2kHz tone is already annihilated to ~-77dB by the per-bin
+    projection before the backstop ever runs (see NOTE below), so what the
+    backstop is actually being measured on here is the independent noise
+    residual left in that band.
+
+    The 40 dB bound is deliberately loose -- the 4-pole fallback would pass
+    it too. Distinguishing 4 poles from 12 is the job of the
+    BACKSTOP_FILTER constant test; this test's job is proving the filter
+    runs at all.
+    """
+    import numpy as np
+    import soundfile as sf
+    from scipy.signal import butter, sosfiltfilt
+
+    # NOTE: two deviations from the brief's literal fixture, both verified
+    # necessary by actually running Step 4 (temporarily gutting the backstop
+    # and re-running):
+    #
+    # 1. Duration: sr*3 (3s) -> sr*6 (6s). bass_free_frame_mask selects a
+    #    fixed 30th percentile of frames as "bass-free" regardless of clip
+    #    length, while fit_projection_gains requires >=1.0s worth of such
+    #    frames (a fixed frame count, independent of clip duration). 30% of
+    #    3s (~0.9s) falls just short of that fixed 1.0s floor, so a 3s clip
+    #    always raised InsufficientCalibrationData before the backstop ever
+    #    ran. 6s clears the floor with margin (~1.8s of bass-free frames).
+    #
+    # 2. Reference tone: R no longer carries a bit-for-bit-identical copy of
+    #    the 2kHz leak. With an exact copy, the linear per-bin projection
+    #    alone (project_clean_bass) cancels the 2kHz tone to ~-77dB with NO
+    #    backstop at all -- confirmed by stubbing the backstop call and
+    #    re-running, per Step 4. That means the original fixture couldn't
+    #    prove the backstop does anything; it would pass even with the
+    #    filter deleted, recreating exactly the blind spot this test exists
+    #    to close. Adding small independent (uncorrelated) per-channel noise
+    #    models the fact that real guitar bleed is never a perfectly
+    #    coherent copy between channels -- the projection can't cancel the
+    #    part of a channel's content that has no counterpart in the other
+    #    channel, so a real residual is left behind for the lowpass backstop
+    #    to actually remove. Verified: stubbed backstop -> -30.3dB (fails
+    #    the < -40dB bound, as required); real backstop -> -123.5dB (passes
+    #    with wide margin).
+    sr = 44100
+    t = np.arange(sr * 6) / sr
+    rng = np.random.default_rng(0)
+    low_tone = 0.3 * np.sin(2 * np.pi * 200 * t)
+    high_tone = 0.3 * np.sin(2 * np.pi * 2000 * t)
+    # 0.04 is load-bearing: it's what gives the projection an uncancellable
+    # residual for the backstop to remove (see NOTE above). Do not shrink
+    # this -- below roughly 0.02 the test loses its teeth and passes even
+    # with the backstop deleted (measured -77.5dB, inside the -40dB bound).
+    noise_l = 0.04 * rng.standard_normal(len(t))
+    noise_r = 0.04 * rng.standard_normal(len(t))
+    # L carries both; R carries only the high tone (plus its own independent
+    # noise), so the projection has a reference to cancel and the low tone
+    # survives as "bass".
+    stereo = np.stack([low_tone + high_tone + noise_l, high_tone + noise_r], axis=1)
+
+    src = tmp_path / "tones.wav"
+    sf.write(str(src), stereo, sr, subtype="PCM_24")
+
+    monkeypatch.chdir(tmp_path)
+    extract_bass(src, force=True)
+    clean_path = resolve_paths(src).bass_clean
+
+    y, out_sr = sf.read(str(clean_path), dtype="float64", always_2d=False)
+
+    def band_rms(low, high):
+        sos = butter(4, [low, high], btype="bandpass", fs=out_sr, output="sos")
+        return float(np.sqrt(np.mean(sosfiltfilt(sos, y) ** 2)))
+
+    low_rms = band_rms(150, 250)
+    high_rms = band_rms(1800, 2200)
+    ratio_db = 20 * np.log10(max(high_rms, 1e-12) / max(low_rms, 1e-12))
+
+    assert ratio_db < -40, f"backstop did not attenuate: 2kHz is only {ratio_db:.1f}dB below 200Hz"
+
+
+@pytest.mark.skipif(ffmpeg_missing, reason=skip_reason)
 def test_full_pipeline_slice_artifacts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """run_pipeline with slice_spec produces all six artifacts bearing the slice suffix.
 
@@ -216,14 +303,18 @@ def test_sliced_pipeline_length_invariant(tmp_path: Path, monkeypatch: pytest.Mo
 # Real-track regression: known-bad tracks 06 and 40
 # ---------------------------------------------------------------------------
 #
-# Scored with metrics.compute_music_band_delta_db / compute_absolute_leak_db
-# (dirty-vs-clean band comparison during active music, plus an absolute
-# cleanliness score against the original track) -- NOT the earlier
-# silence-window residual approach, which was found during manual review to
-# conflate voice/narration bleed in count-in windows with actual guitar
-# bleed during playing, producing misleading "regression" signals on
-# instructional tracks with spoken narration between examples. See the
-# guitar-cancellation handoff doc for the full investigation.
+# Scored with metrics.compute_music_band_delta_db (dirty-vs-clean band
+# comparison during active music) and compute_source_referenced_leak_db
+# (rejection vs the original's high band, plus residual vs the original's
+# bass).
+#
+# Two earlier designs were discarded. The first scored residual energy
+# INSIDE detect.py's silence windows, which on this instructional collection
+# are almost entirely count-in and narration -- it measured voice bleed, not
+# guitar bleed. The second divided by the original's high-band energy alone,
+# which ranks tracks by how bright the source mix is: 03 and 06 leak within
+# 0.6dB of each other but scored 7.6dB apart. See the backstop-and-leak-
+# metrics design doc for the full investigation.
 
 _REGRESSION_TRACKS_DIR = Path("tracks/BluesBass")
 _REGRESSION_TRACKS = ["06_Dyna Flow.mp3", "40_The Thrill Is Gone.mp3"]
@@ -245,7 +336,7 @@ def test_clean_bass_reduces_leak_on_known_bad_tracks(
     genuine, substantial leak reduction relative to both the naive baseline
     and the original track -- not just a directionally-better number."""
     from bassify.detect import detect_windows
-    from bassify.metrics import compute_absolute_leak_db, compute_music_band_delta_db
+    from bassify.metrics import compute_music_band_delta_db, compute_source_referenced_leak_db
 
     src = (_REGRESSION_TRACKS_DIR / track_name).resolve()
     monkeypatch.chdir(tmp_path)
@@ -255,11 +346,22 @@ def test_clean_bass_reduces_leak_on_known_bad_tracks(
     windows = detect_windows(p.bass, original_path=src, force=True)
 
     high_delta, low_delta = compute_music_band_delta_db(p.bass, p.bass_clean, windows)
-    absolute_leak = compute_absolute_leak_db(p.bass_clean, src, windows)
+    rejection, residual = compute_source_referenced_leak_db(p.bass_clean, src, windows)
+
+    # Thresholds derived from measured values on tracks 06/40 against the
+    # 12-pole backstop (rejection: -44.1/-39.7dB, residual: -45.5/-44.4dB),
+    # taking the worst (least negative) value per metric with ~5dB of
+    # headroom toward zero. Pre-backstop values (-33.1/-26.4dB rejection,
+    # -34.5/-31.1dB residual) fall short of these bounds, so the test can no
+    # longer pass with the backstop deleted. If the backstop's pole count or
+    # cutoff changes again, re-measure and re-derive these two numbers --
+    # do not carry them forward unchanged.
+    REJ = -34.0
+    RES = -39.0
 
     print(
         f"{track_name}: high-band Δ={high_delta:.1f}dB low-band Δ={low_delta:.1f}dB "
-        f"abs leak vs original={absolute_leak:.1f}dB"
+        f"rejection={rejection:.1f}dB residual/bass={residual:.1f}dB"
     )
 
     assert high_delta < 0, f"{track_name}: high-band leak did not improve (Δ={high_delta:.1f}dB)"
@@ -267,7 +369,11 @@ def test_clean_bass_reduces_leak_on_known_bad_tracks(
         f"{track_name}: bass itself moved too much (low-band Δ={low_delta:.1f}dB) "
         "-- projection may be damaging bass, not just cancelling guitar"
     )
-    assert absolute_leak < -15.0, (
+    assert rejection < REJ, (
         f"{track_name}: not enough of the original's high-band content was removed "
-        f"(abs leak={absolute_leak:.1f}dB, need < -15.0dB)"
+        f"(rejection={rejection:.1f}dB, need < {REJ}dB)"
+    )
+    assert residual < RES, (
+        f"{track_name}: too much high-band content remains relative to the bass "
+        f"(residual/bass={residual:.1f}dB, need < {RES}dB)"
     )

@@ -100,26 +100,35 @@ def compute_music_band_delta_db(
     return float(high_delta), float(low_delta)
 
 
-def compute_absolute_leak_db(
+def compute_source_referenced_leak_db(
     clean_path: Path,
     original_path: Path,
     windows_path: Path,
     band_cutoff: float = 800.0,
-) -> float:
-    """How much of the ORIGINAL track's high-band (guitar-range) energy
-    still survives in bass_clean.wav, during active music.
+) -> tuple[float, float]:
+    """How much non-bass content survives in bass_clean.wav, measured
+    against the ORIGINAL track during active music.
 
-    This is an absolute cleanliness score, independent of the naive
-    baseline (bass.wav) -- unlike compute_music_band_delta_db, which only
-    tells you how much was removed relative to the naive method, this tells
-    you how clean the deliverable actually is. Use it to drive improvement
-    toward a real target (e.g. "-20dB vs the original") rather than just
-    "better than dirty bass.wav" -- a track that started nearly guitar-free
-    and a track that started terrible but was only partly fixed can show
-    the same delta, but very different absolute cleanliness.
+    Returns (rejection_db, residual_vs_bass_db):
 
-    Lower (more negative) = cleaner: less of the original mix's high-band
-    content leaks through into the isolated bass.
+    - rejection_db: clean high-band energy relative to the ORIGINAL's
+      high-band energy. A true rejection ratio -- "what fraction of the
+      source's guitar/drums did we remove". A DSP performance number.
+
+    - residual_vs_bass_db: clean high-band energy relative to the
+      ORIGINAL's LOW-band (bass) energy -- "how much junk is left per unit
+      of the bass we were isolating". An audibility number.
+
+    Both are referenced to the source, because comparing two derived files
+    against each other says nothing about how much of the original was
+    actually removed. They differ because the original's high-band energy
+    varies with how bright and busy the mix is, which has nothing to do
+    with cancellation quality: on the real collection, tracks 03 and 06
+    leaked within 0.6 dB of each other but scored 7.6 dB apart on
+    rejection alone, purely because 06's source is brighter. Referencing
+    the bass instead groups tracks the way they sound.
+
+    Lower (more negative) is better for both.
     """
     yc, sr = sf.read(str(clean_path), dtype="float64", always_2d=False)
     yo = librosa.load(str(original_path), sr=sr, mono=True)[0].astype(np.float64)
@@ -131,26 +140,28 @@ def compute_absolute_leak_db(
 
     clean_high = _masked_bandpass_rms(yc, music_mask, sr, low=band_cutoff, high=None)
     original_high = _masked_bandpass_rms(yo, music_mask, sr, low=band_cutoff, high=None)
+    original_low = _masked_bandpass_rms(yo, music_mask, sr, low=None, high=band_cutoff)
 
-    ratio = clean_high / max(original_high, 1e-12)
-    return float(20 * np.log10(max(ratio, 1e-12)))
+    rejection = 20 * np.log10(max(clean_high / max(original_high, 1e-12), 1e-12))
+    residual = 20 * np.log10(max(clean_high / max(original_low, 1e-12), 1e-12))
+    return float(rejection), float(residual)
 
 
 def scan_collection(
     collection_dir: Path, band_cutoff: float = 800.0
-) -> list[tuple[str, float, float, float | None]]:
+) -> list[tuple[str, float, float, float | None, float | None]]:
     """For each track directory under collection_dir with both a dirty
     bass.wav and a bass_clean.wav, compute (name, high_band_delta_db,
-    low_band_delta_db, absolute_leak_db).
+    low_band_delta_db, rejection_db, residual_vs_bass_db).
 
-    absolute_leak_db is None when the original source track can't be found
-    at tracks/<collection>/<track_name>.* (e.g. a differently-named or
-    missing source file).
+    rejection_db and residual_vs_bass_db are both None when the original
+    source track can't be found at tracks/<collection>/<track_name>.* (e.g.
+    a differently-named or missing source file).
     """
     collection_dir = Path(collection_dir)
     tracks_dir = Path("tracks") / collection_dir.name
 
-    rows: list[tuple[str, float, float, float | None]] = []
+    rows: list[tuple[str, float, float, float | None, float | None]] = []
     for track_dir in sorted(collection_dir.iterdir()):
         if not track_dir.is_dir():
             continue
@@ -166,22 +177,22 @@ def scan_collection(
         )
 
         original_path = next(tracks_dir.glob(f"{track_dir.name}.*"), None)
-        absolute_leak = (
-            compute_absolute_leak_db(
+        if original_path is not None:
+            rejection, residual = compute_source_referenced_leak_db(
                 bass_clean_path, original_path, windows_path, band_cutoff=band_cutoff
             )
-            if original_path is not None
-            else None
-        )
-        rows.append((track_dir.name, high_delta, low_delta, absolute_leak))
+        else:
+            rejection, residual = None, None
+        rows.append((track_dir.name, high_delta, low_delta, rejection, residual))
     return rows
 
 
-def print_report(rows: list[tuple[str, float, float, float | None]]) -> None:
+def print_report(rows: list[tuple[str, float, float, float | None, float | None]]) -> None:
     print(
         f"{'track':<45} {'high-band Δ (dB)':>16} {'low-band Δ (dB)':>16} "
-        f"{'abs leak vs orig (dB)':>22}"
+        f"{'rejection (dB)':>15} {'residual/bass (dB)':>19}"
     )
-    for name, high_delta, low_delta, absolute_leak in rows:
-        abs_str = f"{absolute_leak:.1f}" if absolute_leak is not None else "n/a"
-        print(f"{name:<45} {high_delta:>16.1f} {low_delta:>16.1f} {abs_str:>22}")
+    for name, high_delta, low_delta, rejection, residual in rows:
+        rej_str = f"{rejection:.1f}" if rejection is not None else "n/a"
+        res_str = f"{residual:.1f}" if residual is not None else "n/a"
+        print(f"{name:<45} {high_delta:>16.1f} {low_delta:>16.1f} {rej_str:>15} {res_str:>19}")

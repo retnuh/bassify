@@ -49,6 +49,72 @@ may be near-silent and no filter is needed. **Test the plain version first.**
 
 ---
 
+### What was tried and rejected
+
+Measured during the 2026-08-15 backstop investigation. Scripts live in
+`experiments/`; re-run them before overturning any of this.
+
+**`asupercut` is not a lowpass.** Its `cutoff` range is 20000-192000 Hz — it
+cuts ultrasonic content. `asupercut=cutoff=800` fails a parameter check on
+every track:
+
+```
+[Parsed_asupercut_0] Value 800.000000 for parameter 'cutoff' out of range [20000 - 192000]
+```
+
+The backstop is six chained `lowpass=f=800` stages (12 poles). Listening
+tests (`experiments/backstop_variants.py`) compared 4, 8, 12 and 24 poles,
+600/800/1200 Hz corners, a zero-phase variant, and -12/-20 dB high shelves.
+Slope stops helping past 12 poles; a 600 Hz corner costs more bass than it
+removes guitar; the zero-phase variant pre-rings audibly.
+
+Note that "800 Hz corner" describes each individual stage, not the cascade.
+Six cascaded 2-pole Butterworth stages each contribute -3 dB at their own
+corner, so the chain's actual -3 dB point sits near 473 Hz, with roughly
+-7.2 dB already down at 600 Hz and about -18 dB by 800 Hz. The `low-band Δ`
+safety column in the regression report integrates 0-800 Hz RMS, which is
+dominated by fundamentals, so it is nearly blind to shaving in the 400-800 Hz
+harmonic region where the cascade is doing most of its cutting -- which is
+why the choice of 12 poles rests on the listening tests above rather than on
+that column.
+
+**Time-varying gain ("Approach B") — rejected, ≤1 dB.** Refitting `Ĥ[k]` per
+10s block, and a better version anchored on runs of bass-free frames with
+gains interpolated between anchors, both improved held-out leak by at most
+1 dB on tracks 43, 40, 06 and 03 (`experiments/frame_leak.py`).
+
+**NLMS adaptive FIR — rejected, worse than the baseline.** Tested at 8 kHz
+with 512 taps, adapting continuously and gated to rests, at three step
+sizes, single-pass and two-pass from converged taps
+(`experiments/nlms_test.py`). It never beat the static projection and
+usually lost to plain `L-R`. The reason is structural: NLMS minimises
+*total* residual power, which here is dominated by the bass we are trying to
+keep, so misadjustment stays large. Small step sizes converge too slowly;
+large ones start eating bass (-0.7 dB on track 43 at mu=0.05). The shipped
+bass-free-gated frequency-domain fit is the well-conditioned form of the
+same idea.
+
+**Why both adaptive approaches failed: the coherence ceiling.** Any
+projection of R onto L can only remove content that is *correlated* between
+channels. Energy-weighted `1 - coherence` over bass-free frames ranks tracks
+by how much is cancellable at all, and that ranking predicts which tracks
+the projection helps: 06 and 43 (ceiling ~-20 dB) gained 6-9 dB, while 40,
+03 and 30 (~-11 dB) gained little or nothing. Their residual is decorrelated
+— reverb tails, stereo-widened guitar — and no linear filter of R can touch
+it. Improving those tracks needs something that is not a linear L/R
+projection (spectral masking, or a separation model such as Demucs).
+
+**Bass-free frames cluster at track edges.** On most of this collection the
+bass plays continuously through the body, so frames detected as bass-free
+are the count-in and the fade. Track 40's are `0.00-4.13s` and
+`70.94-74.72s`, with two frames in the entire middle. Any metric scored on
+bass-free content therefore measures the intro and the outro on most tracks
+— the trap that sank the original silence-window metric and the frame-level
+metric explored later. Only tracks with genuine mid-song rests (03, 43) can
+be scored that way.
+
+---
+
 ## 2. Detect the gaps (pure ffmpeg, no Python)
 
 Spoken announcements and count-in clicks live in the gaps *between* riffs —

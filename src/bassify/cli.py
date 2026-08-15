@@ -327,6 +327,12 @@ def measure_bleed(
     range), measured only where music is actually playing -- silence-window
     gaps (count-in, narration) are excluded since there's no music there to
     compare.
+
+    Also reports two source-referenced numbers: rejection (how much of the
+    ORIGINAL track's high-band content was removed) and residual/bass (how
+    much high-band content remains, relative to the original's bass level).
+    Rejection is a DSP-performance number; residual/bass tracks audibility
+    and is the one that ranks tracks the way they sound.
     """
     rows = metrics_mod.scan_collection(collection_dir, band_cutoff=band_cutoff)
     metrics_mod.print_report(rows)

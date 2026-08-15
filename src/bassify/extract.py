@@ -8,7 +8,7 @@ import soundfile as sf
 from scipy.optimize import minimize_scalar
 from scipy.signal import correlate, correlation_lags, istft, stft
 
-from bassify.ffmpeg import FfmpegError, run_ffmpeg, should_skip
+from bassify.ffmpeg import run_ffmpeg, should_skip
 from bassify.paths import resolve_paths
 from bassify.slice import SliceSpec
 
@@ -23,8 +23,14 @@ BASS_FREE_PERCENTILE = 30.0
 MIN_BASS_FREE_SECONDS = 1.0
 PROJECTION_EPS_REL = 1e-6
 
-ASUPERCUT_FILTER = f"asupercut=cutoff={DEFAULT_LOWPASS:g}:order=8"
-ASUPERCUT_FALLBACK_FILTER = f"lowpass=f={DEFAULT_LOWPASS:g},lowpass=f={DEFAULT_LOWPASS:g}"
+# Backstop for bass_clean.wav: six chained 2-pole lowpass stages = 12 poles,
+# ~-72 dB/oct. NOT asupercut -- that filter's cutoff range is 20000-192000 Hz
+# (it cuts ultrasonic content), so asupercut=cutoff=800 fails a parameter
+# check on every track. 12 poles was chosen by listening tests over 4, 8 and
+# 24 poles and over 600/1200 Hz corners: it removes most of the remaining
+# drums and guitar without making the bass muddy.
+BACKSTOP_STAGES = 6
+BACKSTOP_FILTER = ",".join([f"lowpass=f={DEFAULT_LOWPASS:g}"] * BACKSTOP_STAGES)
 
 
 class InsufficientCalibrationData(RuntimeError):
@@ -249,7 +255,7 @@ def _extract_bass_clean(
 ) -> None:
     """Decode input via ffmpeg (same decoder/args as the dirty path, so the
     result is frame-exact with bass.wav), run the numpy projection DSP, then
-    apply the asupercut backstop (with fallback) via ffmpeg.
+    apply the 12-pole lowpass backstop via ffmpeg.
     """
     with tempfile.TemporaryDirectory(dir=str(out_clean.parent)) as tmp_dir:
         tmp_stereo = Path(tmp_dir) / "stereo.wav"
@@ -274,30 +280,15 @@ def _extract_bass_clean(
         bass = project_clean_bass(L, r, sr)
         sf.write(str(tmp_bass), bass, sr, subtype="PCM_24")
 
-        try:
-            run_ffmpeg(
-                [
-                    "-i",
-                    str(tmp_bass),
-                    "-af",
-                    ASUPERCUT_FILTER,
-                    "-vn",
-                    "-c:a",
-                    "pcm_s24le",
-                    str(out_clean),
-                ]
-            )
-        except FfmpegError:
-            run_ffmpeg(
-                [
-                    "-i",
-                    str(tmp_bass),
-                    "-af",
-                    ASUPERCUT_FALLBACK_FILTER,
-                    "-vn",
-                    "-c:a",
-                    "pcm_s24le",
-                    str(out_clean),
-                ]
-            )
-            print(f"asupercut unavailable, used fallback lowpass chain for {out_clean}")
+        run_ffmpeg(
+            [
+                "-i",
+                str(tmp_bass),
+                "-af",
+                BACKSTOP_FILTER,
+                "-vn",
+                "-c:a",
+                "pcm_s24le",
+                str(out_clean),
+            ]
+        )
