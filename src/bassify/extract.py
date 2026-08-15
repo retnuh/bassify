@@ -12,6 +12,20 @@ from bassify.slice import SliceSpec
 
 DEFAULT_LOWPASS = 800.0
 
+STFT_NPERSEG = 2048
+STFT_HOP = 512
+STFT_NOVERLAP = STFT_NPERSEG - STFT_HOP  # 75% overlap
+
+BASS_FREE_LOW_CUTOFF_HZ = 250.0
+BASS_FREE_PERCENTILE = 30.0
+MIN_BASS_FREE_SECONDS = 1.0
+PROJECTION_EPS_REL = 1e-6
+
+
+class InsufficientCalibrationData(RuntimeError):
+    """Raised when a track has too little bass-free content to fit a reliable
+    guitar-cancellation projection."""
+
 
 def build_filter(lowpass: float | None) -> str:
     f = "pan=mono|c0=c0-c1"
@@ -81,6 +95,59 @@ def apply_fractional_delay(x: np.ndarray, delay_samples: float) -> np.ndarray:
     freqs = np.fft.rfftfreq(n)
     phase_shift = np.exp(-2j * np.pi * freqs * delay_samples)
     return np.fft.irfft(spectrum * phase_shift, n=n)
+
+
+def bass_free_frame_mask(
+    L_stft: np.ndarray,
+    freqs: np.ndarray,
+    low_cutoff: float = BASS_FREE_LOW_CUTOFF_HZ,
+    percentile: float = BASS_FREE_PERCENTILE,
+) -> np.ndarray:
+    """Return a boolean mask (one per STFT frame) marking bass-free frames.
+
+    A frame is bass-free when its low-band (<low_cutoff Hz) energy in L falls
+    at or below the given percentile of the track's own low-band energy
+    distribution. Percentile-based (not a fixed dB threshold) so brief
+    broadband content -- notably count-in click transients, which are
+    structurally bass-free -- is naturally included without special-casing,
+    as long as it's a minority of the track's frame-time.
+    """
+    low_bins = freqs < low_cutoff
+    low_energy = np.sum(np.abs(L_stft[low_bins, :]) ** 2, axis=0)
+    threshold = np.percentile(low_energy, percentile)
+    return low_energy <= threshold
+
+
+def fit_projection_gains(
+    L_stft: np.ndarray,
+    R_stft: np.ndarray,
+    mask: np.ndarray,
+    sr: int,
+    hop_length: int = STFT_HOP,
+    min_seconds: float = MIN_BASS_FREE_SECONDS,
+    eps_rel: float = PROJECTION_EPS_REL,
+) -> np.ndarray:
+    """Fit one complex gain per frequency bin from bass-free frames only.
+
+    Ĥ[k] = sum(L[k,t]*conj(R[k,t])) / (sum(|R[k,t]|^2) + eps), over
+    bass-free frames t. Raises InsufficientCalibrationData if fewer than
+    min_seconds worth of bass-free frames are available -- fail fast rather
+    than silently fitting on too little data.
+    """
+    n_bass_free = int(np.sum(mask))
+    min_frames = max(1, int(min_seconds * sr / hop_length))
+    if n_bass_free < min_frames:
+        raise InsufficientCalibrationData(
+            f"only {n_bass_free} bass-free frames found (need >= {min_frames} "
+            f"for >= {min_seconds}s of calibration data)"
+        )
+
+    L_masked = L_stft[:, mask]
+    R_masked = R_stft[:, mask]
+    numerator = np.sum(L_masked * np.conj(R_masked), axis=1)
+    denominator = np.sum(np.abs(R_masked) ** 2, axis=1)
+    eps = eps_rel * np.mean(denominator)
+    return numerator / (denominator + eps)
 
 
 def extract_bass(

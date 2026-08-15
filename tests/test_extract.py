@@ -1,8 +1,20 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
+from scipy.signal import stft
 
-from bassify.extract import apply_fractional_delay, build_filter, estimate_delay
+from bassify.extract import (
+    STFT_HOP,
+    STFT_NOVERLAP,
+    STFT_NPERSEG,
+    InsufficientCalibrationData,
+    apply_fractional_delay,
+    bass_free_frame_mask,
+    build_filter,
+    estimate_delay,
+    fit_projection_gains,
+)
 
 
 def test_build_filter_no_lowpass():
@@ -46,3 +58,43 @@ def test_align_round_trip_recovers_fractional_delay():
     edge = 50  # ignore edges: the shift zero-pads them
     corr_coef = np.corrcoef(l[edge:-edge], corrected[edge:-edge])[0, 1]
     assert corr_coef > 0.99
+
+
+def test_bass_free_frame_mask_flags_quiet_frames_more_often():
+    sr = 8000
+    n = sr * 4
+    t = np.arange(n) / sr
+    low = np.sin(2 * np.pi * 100 * t)
+    low[n // 2 :] = 0.0  # second half is low-band silent
+
+    freqs, _, L = stft(low, fs=sr, nperseg=STFT_NPERSEG, noverlap=STFT_NOVERLAP)
+    mask = bass_free_frame_mask(L, freqs)
+
+    n_frames = mask.shape[0]
+    first_half_rate = mask[: n_frames // 2].mean()
+    second_half_rate = mask[n_frames // 2 :].mean()
+    assert second_half_rate > first_half_rate
+
+
+def test_fit_projection_gains_recovers_known_gain():
+    rng = np.random.default_rng(2)
+    n_bins, n_frames = 10, 200
+    R = rng.standard_normal((n_bins, n_frames)) + 1j * rng.standard_normal((n_bins, n_frames))
+    true_h = np.full(n_bins, 0.5 + 0.1j)
+    L = true_h[:, None] * R
+    mask = np.ones(n_frames, dtype=bool)
+
+    h = fit_projection_gains(L, R, mask, sr=8000, hop_length=STFT_HOP, min_seconds=0.0)
+
+    assert np.allclose(h, true_h, atol=1e-6)
+
+
+def test_fit_projection_gains_raises_on_insufficient_data():
+    rng = np.random.default_rng(3)
+    n_bins, n_frames = 10, 5
+    R = rng.standard_normal((n_bins, n_frames)) + 1j * rng.standard_normal((n_bins, n_frames))
+    L = R.copy()
+    mask = np.array([True, False, False, False, False])
+
+    with pytest.raises(InsufficientCalibrationData):
+        fit_projection_gains(L, R, mask, sr=8000, hop_length=STFT_HOP, min_seconds=1.0)
