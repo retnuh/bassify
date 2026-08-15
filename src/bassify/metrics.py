@@ -52,7 +52,12 @@ def scan_collection(collection_dir: Path) -> list[tuple[str, float, float | None
 
 
 def print_report(rows: list[tuple[str, float, float | None]]) -> None:
-    print(f"{'track':<45} {'before (dB)':>12} {'after (dB)':>12}")
+    print(f"{'track':<45} {'before (dB)':>12} {'after (dB)':>12} {'delta (dB)':>12}")
     for name, before, after in rows:
-        after_str = f"{after:.1f}" if after is not None else "n/a"
-        print(f"{name:<45} {before:>12.1f} {after_str:>12}")
+        if after is None:
+            after_str = "n/a"
+            delta_str = "n/a"
+        else:
+            after_str = f"{after:.1f}"
+            delta_str = f"{after - before:+.1f}"
+        print(f"{name:<45} {before:>12.1f} {after_str:>12} {delta_str:>12}")
