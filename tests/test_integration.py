@@ -142,7 +142,11 @@ def test_bass_clean_backstop_attenuates_above_the_cutoff(
     No test asserted this before, which is why the asupercut backstop could
     fail on every single track without anything going red. A 2000 Hz tone
     sits well past the 800 Hz corner; at 12 poles it should be crushed
-    relative to a 200 Hz tone of equal input amplitude.
+    relative to a 200 Hz tone of equal input amplitude. In the final fixture
+    the shared 2kHz tone is already annihilated to ~-77dB by the per-bin
+    projection before the backstop ever runs (see NOTE below), so what the
+    backstop is actually being measured on here is the independent noise
+    residual left in that band.
 
     The 40 dB bound is deliberately loose -- the 4-pole fallback would pass
     it too. Distinguishing 4 poles from 12 is the job of the
@@ -185,6 +189,10 @@ def test_bass_clean_backstop_attenuates_above_the_cutoff(
     rng = np.random.default_rng(0)
     low_tone = 0.3 * np.sin(2 * np.pi * 200 * t)
     high_tone = 0.3 * np.sin(2 * np.pi * 2000 * t)
+    # 0.04 is load-bearing: it's what gives the projection an uncancellable
+    # residual for the backstop to remove (see NOTE above). Do not shrink
+    # this -- below roughly 0.02 the test loses its teeth and passes even
+    # with the backstop deleted (measured -77.5dB, inside the -40dB bound).
     noise_l = 0.04 * rng.standard_normal(len(t))
     noise_r = 0.04 * rng.standard_normal(len(t))
     # L carries both; R carries only the high tone (plus its own independent
@@ -341,11 +349,15 @@ def test_clean_bass_reduces_leak_on_known_bad_tracks(
     rejection, residual = compute_source_referenced_leak_db(p.bass_clean, src, windows)
 
     # Thresholds derived from measured values on tracks 06/40 against the
-    # 4-pole backstop (rejection: -33.1/-26.4dB, residual: -34.5/-31.1dB),
-    # with ~5dB of headroom toward zero so a future 12-pole backstop (which
-    # only makes these numbers more negative/better) keeps passing.
-    REJ = -21.0
-    RES = -26.0
+    # 12-pole backstop (rejection: -44.1/-39.7dB, residual: -45.5/-44.4dB),
+    # taking the worst (least negative) value per metric with ~5dB of
+    # headroom toward zero. Pre-backstop values (-33.1/-26.4dB rejection,
+    # -34.5/-31.1dB residual) fall short of these bounds, so the test can no
+    # longer pass with the backstop deleted. If the backstop's pole count or
+    # cutoff changes again, re-measure and re-derive these two numbers --
+    # do not carry them forward unchanged.
+    REJ = -34.0
+    RES = -39.0
 
     print(
         f"{track_name}: high-band Δ={high_delta:.1f}dB low-band Δ={low_delta:.1f}dB "

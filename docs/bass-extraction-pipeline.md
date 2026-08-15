@@ -68,6 +68,16 @@ tests (`experiments/backstop_variants.py`) compared 4, 8, 12 and 24 poles,
 Slope stops helping past 12 poles; a 600 Hz corner costs more bass than it
 removes guitar; the zero-phase variant pre-rings audibly.
 
+Note that "800 Hz corner" describes each individual stage, not the cascade.
+Six cascaded 2-pole Butterworth stages each contribute -3 dB at their own
+corner, so the chain's actual -3 dB point sits near 473 Hz, with roughly
+-7.2 dB already down at 600 Hz and about -18 dB by 800 Hz. The `low-band Δ`
+safety column in the regression report integrates 0-800 Hz RMS, which is
+dominated by fundamentals, so it is nearly blind to shaving in the 400-800 Hz
+harmonic region where the cascade is doing most of its cutting -- which is
+why the choice of 12 poles rests on the listening tests above rather than on
+that column.
+
 **Time-varying gain ("Approach B") — rejected, ≤1 dB.** Refitting `Ĥ[k]` per
 10s block, and a better version anchored on runs of bass-free frames with
 gains interpolated between anchors, both improved held-out leak by at most
