@@ -220,5 +220,6 @@ __marimo__/
 out/
 tracks/
 experiments/*.wav
+experiments/*.m4a
 experiments/_*.txt
 experiments/CHECKPOINT_*.wav

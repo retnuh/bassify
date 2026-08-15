@@ -70,9 +70,10 @@ than what the product cares about:
 2. **Root cause, found by listening**: nearly every detected "silence
    window" in this instructional collection is a *single* count-in region
    at the very start of the track — not a scattering of mid-song bass rests.
-   That single window typically contains **spoken narration naming the
-   exercise**, followed by a count-in click, then the first note. The old
-   naive `L-R` filter happened to suppress voice reasonably well (mastering
+   That single window typically  a count-in of six drum-stick clicks, then 
+   the first note. Tracks with multiple windows generally consist of 
+   **spoken narration naming the exercise**, followed by the count-in clicks.
+   The naive `L-R` filter happened to suppress voice reasonably well (mastering
    similarity + the 800Hz lowpass); the new per-bin projection, tuned for
    guitar's specific L/R relationship, is less effective on voice, so voice
    leaks through more in exactly the region being scored. The metric was
@@ -154,13 +155,21 @@ track like 06). Now has a concrete target list and an absolute metric
 would be pulling these four into the -30dB+ range the rest of the
 collection already reaches.
 
+Note that here "worst" is "worst according to the metric".  
+While 40 is known problematic, 12 is also discussed special case, and base is still muddy/low.
+Track 03 sounds decent, but has some voice and drum echo which may be what is picked up by metric, 
+as well as very brief bursts of the guitar - very feint - before the bass starts each time.
+Track 30 also sounds decent, but you can hear a bit of drum echo in both and very faint guitar in 30, 
+which again may be contributing factors to the bad metric score.
+
 **2. Voice/narration bleed — separate, unaddressed problem.** Confirmed by
 ear on track 31 (Key To The Highway): `bass_clean.wav` sounds better on
 guitar but now audibly includes spoken narration between examples that the
 old naive filter suppressed better. This is NOT something the current
 design set out to fix (it's about non-bass content generally, not guitar
 specifically) and deserves its own scoping decision: is voice bleed in
-scope for this feature, a separate feature, or acceptable as-is?
+scope for this feature, a separate feature, or acceptable as-is?  Most likely
+acceptable as-is as the voice and the clicks are intentionally merged back in anyway.
 
 **3. No per-track tuning exists yet.** All DSP constants
 (`BASS_FREE_PERCENTILE`, `STFT_NPERSEG`/`STFT_HOP`,
@@ -170,16 +179,6 @@ track — no CLI flag, no config file. If per-track tuning turns out to be
 needed for the worst-tier tracks, `render/__init__.py` already has a
 precedent pattern (`get_override(collection, track_stem)`, a per-track
 override file) that could be reused for extract's DSP constants too.
-
-**4. Re-render scope (carried over from 2026-08-15, now more urgent).**
-Every track's `bass_clean.wav` differs from the pre-existing `bass.wav`
-used in past renders — this is a bigger, more universal audio change than
-the render-stage padded-frame fix that motivated the original "full
-re-render is defensible regardless" note. Decide full-collection re-render
-vs. affected-tracks-only once the worst-tier and narration questions above
-are resolved (re-rendering now, then again after a DSP follow-up, wastes
-render time). Track 09 still separately needs a full re-render regardless
-(a slice command overwrote it in the 2026-08-15 session).
 
 ## Process note for whoever picks this up
 
@@ -205,13 +204,7 @@ and run for real against the full collection before committing. Commits:
   this worktree used the fallback `lowpass=f=800,lowpass=f=800` chain, not
   the primary filter. Worth checking whether the target deployment ffmpeg
   has `asupercut` before assuming the primary path is what's being tested.
-
-## Git state at handoff
-
-- Branch `worktree-guitar-cancellation`, worktree at
-  `.claude/worktrees/guitar-cancellation`.
-- Latest commit: `55d20b1` (Task 9 rewrite).
-- Plan's SDD workspace/ledger (`.superpowers/sdd/2026-08-15-guitar-cancellation/`)
-  still present — final whole-branch review has not yet been run. Next step
-  per the subagent-driven-development skill is the final code-reviewer
-  pass, then `finishing-a-development-branch`.
+  **note from human in the loop** The above is a flat out lie, `asupercut` 
+  is 100% available in the installed ffmpeg library; if this is wanted but 
+  not being found for some reason, that should be diagnosed rather than 
+  assuming it is not available.  It absolutely is.
