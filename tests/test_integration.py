@@ -295,14 +295,18 @@ def test_sliced_pipeline_length_invariant(tmp_path: Path, monkeypatch: pytest.Mo
 # Real-track regression: known-bad tracks 06 and 40
 # ---------------------------------------------------------------------------
 #
-# Scored with metrics.compute_music_band_delta_db / compute_absolute_leak_db
-# (dirty-vs-clean band comparison during active music, plus an absolute
-# cleanliness score against the original track) -- NOT the earlier
-# silence-window residual approach, which was found during manual review to
-# conflate voice/narration bleed in count-in windows with actual guitar
-# bleed during playing, producing misleading "regression" signals on
-# instructional tracks with spoken narration between examples. See the
-# guitar-cancellation handoff doc for the full investigation.
+# Scored with metrics.compute_music_band_delta_db (dirty-vs-clean band
+# comparison during active music) and compute_source_referenced_leak_db
+# (rejection vs the original's high band, plus residual vs the original's
+# bass).
+#
+# Two earlier designs were discarded. The first scored residual energy
+# INSIDE detect.py's silence windows, which on this instructional collection
+# are almost entirely count-in and narration -- it measured voice bleed, not
+# guitar bleed. The second divided by the original's high-band energy alone,
+# which ranks tracks by how bright the source mix is: 03 and 06 leak within
+# 0.6dB of each other but scored 7.6dB apart. See the backstop-and-leak-
+# metrics design doc for the full investigation.
 
 _REGRESSION_TRACKS_DIR = Path("tracks/BluesBass")
 _REGRESSION_TRACKS = ["06_Dyna Flow.mp3", "40_The Thrill Is Gone.mp3"]
@@ -324,7 +328,7 @@ def test_clean_bass_reduces_leak_on_known_bad_tracks(
     genuine, substantial leak reduction relative to both the naive baseline
     and the original track -- not just a directionally-better number."""
     from bassify.detect import detect_windows
-    from bassify.metrics import compute_absolute_leak_db, compute_music_band_delta_db
+    from bassify.metrics import compute_music_band_delta_db, compute_source_referenced_leak_db
 
     src = (_REGRESSION_TRACKS_DIR / track_name).resolve()
     monkeypatch.chdir(tmp_path)
@@ -334,11 +338,18 @@ def test_clean_bass_reduces_leak_on_known_bad_tracks(
     windows = detect_windows(p.bass, original_path=src, force=True)
 
     high_delta, low_delta = compute_music_band_delta_db(p.bass, p.bass_clean, windows)
-    absolute_leak = compute_absolute_leak_db(p.bass_clean, src, windows)
+    rejection, residual = compute_source_referenced_leak_db(p.bass_clean, src, windows)
+
+    # Thresholds derived from measured values on tracks 06/40 against the
+    # 4-pole backstop (rejection: -33.1/-26.4dB, residual: -34.5/-31.1dB),
+    # with ~5dB of headroom toward zero so a future 12-pole backstop (which
+    # only makes these numbers more negative/better) keeps passing.
+    REJ = -21.0
+    RES = -26.0
 
     print(
         f"{track_name}: high-band Δ={high_delta:.1f}dB low-band Δ={low_delta:.1f}dB "
-        f"abs leak vs original={absolute_leak:.1f}dB"
+        f"rejection={rejection:.1f}dB residual/bass={residual:.1f}dB"
     )
 
     assert high_delta < 0, f"{track_name}: high-band leak did not improve (Δ={high_delta:.1f}dB)"
@@ -346,7 +357,11 @@ def test_clean_bass_reduces_leak_on_known_bad_tracks(
         f"{track_name}: bass itself moved too much (low-band Δ={low_delta:.1f}dB) "
         "-- projection may be damaging bass, not just cancelling guitar"
     )
-    assert absolute_leak < -15.0, (
+    assert rejection < REJ, (
         f"{track_name}: not enough of the original's high-band content was removed "
-        f"(abs leak={absolute_leak:.1f}dB, need < -15.0dB)"
+        f"(rejection={rejection:.1f}dB, need < {REJ}dB)"
+    )
+    assert residual < RES, (
+        f"{track_name}: too much high-band content remains relative to the bass "
+        f"(residual/bass={residual:.1f}dB, need < {RES}dB)"
     )
