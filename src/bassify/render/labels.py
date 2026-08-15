@@ -85,7 +85,10 @@ def build_axis_strip(
     # bottom endpoint) and drop the top note — the octave-boundary C otherwise
     # sits at the extreme right and its label clips off-screen.
     lo_midi, hi_midi = _midi(basefreq), _midi(endfreq)
-    for midi in range(lo_midi, hi_midi):  # half-open: bottom included, top dropped
+    # Inclusive of the top note so its gridline closes the last cell, but its
+    # LABEL is skipped below: the octave-boundary C sits at the extreme right
+    # and its text would clip off-screen. Line and label are separate concerns.
+    for midi in range(lo_midi, hi_midi + 1):
         f = _midi_freq(midi)
         x = note_x(f, pad_lo, pad_hi, width)
         pc = midi % 12
@@ -101,6 +104,8 @@ def build_axis_strip(
             color = _GREY
         draw.line([(x, 0), (x, axis_h)], fill=(0, 0, 0, 180), width=3)
         draw.line([(x, 0), (x, axis_h)], fill=color, width=1)
+        if midi == hi_midi:
+            continue  # closing gridline only — its label would clip off-screen
         label = f"{_NAMES[pc]}{midi // 12 - 1}" if is_root else _NAMES[pc]
         draw.text(
             (x + 3, _YOFF[tier]),
