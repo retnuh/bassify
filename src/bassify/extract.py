@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import tempfile
 from pathlib import Path
 
 import numpy as np
+import soundfile as sf
 from scipy.optimize import minimize_scalar
 from scipy.signal import correlate, correlation_lags, istft, stft
 
-from bassify.ffmpeg import run_ffmpeg, should_skip
+from bassify.ffmpeg import FfmpegError, run_ffmpeg, should_skip
 from bassify.paths import resolve_paths
 from bassify.slice import SliceSpec
 
@@ -20,6 +22,9 @@ BASS_FREE_LOW_CUTOFF_HZ = 250.0
 BASS_FREE_PERCENTILE = 30.0
 MIN_BASS_FREE_SECONDS = 1.0
 PROJECTION_EPS_REL = 1e-6
+
+ASUPERCUT_FILTER = f"asupercut=cutoff={DEFAULT_LOWPASS:g}:order=8"
+ASUPERCUT_FALLBACK_FILTER = f"lowpass=f={DEFAULT_LOWPASS:g},lowpass=f={DEFAULT_LOWPASS:g}"
 
 
 class InsufficientCalibrationData(RuntimeError):
@@ -182,30 +187,105 @@ def project_clean_bass(l: np.ndarray, r: np.ndarray, sr: int) -> np.ndarray:
 def extract_bass(
     input_path: Path,
     output: Path | None = None,
+    output_clean: Path | None = None,
     lowpass: float | None = DEFAULT_LOWPASS,
     slice_spec: SliceSpec | None = None,
     cut_inputs: bool = True,
     force: bool = False,
 ) -> Path:
-    """Isolate bass via L-R subtraction -> mono 24-bit WAV. Returns output path."""
+    """Isolate bass via L-R subtraction -> mono 24-bit WAV (dirty), and also
+    write a per-bin-projection-cleaned mono 24-bit WAV (bass_clean.wav).
+
+    Returns the dirty output path (unchanged return contract). The clean
+    output is always written (no flag); its path is `output_clean` or, when
+    not given, `resolve_paths(input_path, slice_spec=spec).bass_clean`.
+    """
     spec = slice_spec or SliceSpec()
-    out = output or resolve_paths(input_path, slice_spec=spec).bass
+    resolved = resolve_paths(input_path, slice_spec=spec)
+    out = output or resolved.bass
     out.parent.mkdir(parents=True, exist_ok=True)
     if should_skip(out, force):
         print(f"skip (exists): {out}")
-        return out
-    args: list[str] = []
-    if cut_inputs:
-        args += spec.input_args()
-    args += [
-        "-i",
-        str(input_path),
-        "-af",
-        build_filter(lowpass),
-        "-vn",
-        "-c:a",
-        "pcm_s24le",
-        str(out),
-    ]
-    run_ffmpeg(args)
+    else:
+        args: list[str] = []
+        if cut_inputs:
+            args += spec.input_args()
+        args += [
+            "-i",
+            str(input_path),
+            "-af",
+            build_filter(lowpass),
+            "-vn",
+            "-c:a",
+            "pcm_s24le",
+            str(out),
+        ]
+        run_ffmpeg(args)
+
+    out_clean = output_clean or resolved.bass_clean
+    out_clean.parent.mkdir(parents=True, exist_ok=True)
+    if should_skip(out_clean, force):
+        print(f"skip (exists): {out_clean}")
+    else:
+        _extract_bass_clean(input_path, out_clean, spec, cut_inputs)
+
     return out
+
+
+def _extract_bass_clean(
+    input_path: Path, out_clean: Path, spec: SliceSpec, cut_inputs: bool
+) -> None:
+    """Decode input via ffmpeg (same decoder/args as the dirty path, so the
+    result is frame-exact with bass.wav), run the numpy projection DSP, then
+    apply the asupercut backstop (with fallback) via ffmpeg.
+    """
+    with tempfile.TemporaryDirectory(dir=str(out_clean.parent)) as tmp_dir:
+        tmp_stereo = Path(tmp_dir) / "stereo.wav"
+        tmp_bass = Path(tmp_dir) / "bass_raw.wav"
+
+        decode_args: list[str] = []
+        if cut_inputs:
+            decode_args += spec.input_args()
+        decode_args += [
+            "-i",
+            str(input_path),
+            "-vn",
+            "-c:a",
+            "pcm_s24le",
+            str(tmp_stereo),
+        ]
+        run_ffmpeg(decode_args)
+
+        l_r, sr = sf.read(str(tmp_stereo), dtype="float64", always_2d=True)
+        l, r = l_r[:, 0], l_r[:, 1]
+
+        bass = project_clean_bass(l, r, sr)
+        sf.write(str(tmp_bass), bass, sr, subtype="PCM_24")
+
+        try:
+            run_ffmpeg(
+                [
+                    "-i",
+                    str(tmp_bass),
+                    "-af",
+                    ASUPERCUT_FILTER,
+                    "-vn",
+                    "-c:a",
+                    "pcm_s24le",
+                    str(out_clean),
+                ]
+            )
+        except FfmpegError:
+            run_ffmpeg(
+                [
+                    "-i",
+                    str(tmp_bass),
+                    "-af",
+                    ASUPERCUT_FALLBACK_FILTER,
+                    "-vn",
+                    "-c:a",
+                    "pcm_s24le",
+                    str(out_clean),
+                ]
+            )
+            print(f"asupercut unavailable, used fallback lowpass chain for {out_clean}")

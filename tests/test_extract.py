@@ -131,3 +131,31 @@ def test_project_clean_bass_cancels_reference_leakage_and_preserves_length():
 
     corr = np.corrcoef(bass[: n // 2], b_hat[: n // 2])[0, 1]
     assert corr > 0.9
+
+
+def test_extract_bass_output_clean_defaults_from_resolve_paths(tmp_path, monkeypatch):
+    from bassify import extract as extract_mod
+
+    input_mp3 = tmp_path / "tracks" / "Band" / "01_Song.mp3"
+    input_mp3.parent.mkdir(parents=True)
+    input_mp3.touch()
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(extract_mod, "run_ffmpeg", lambda args: None)
+
+    calls = []
+
+    def fake_extract_bass_clean(input_path, out_clean, spec, cut_inputs):
+        calls.append(out_clean)
+        out_clean.parent.mkdir(parents=True, exist_ok=True)
+        out_clean.touch()
+
+    monkeypatch.setattr(extract_mod, "_extract_bass_clean", fake_extract_bass_clean)
+
+    from bassify.paths import resolve_paths
+
+    out = extract_mod.extract_bass(input_mp3)
+    expected_clean = resolve_paths(input_mp3).bass_clean
+
+    assert out == resolve_paths(input_mp3).bass
+    assert calls == [expected_clean]

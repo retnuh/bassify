@@ -114,6 +114,26 @@ def test_extract_produces_mono_wav(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(ffmpeg_missing, reason=skip_reason)
+def test_extract_bass_produces_frame_exact_dirty_and_clean(tmp_path: Path) -> None:
+    """bass_clean.wav is mono and frame-count-exact with bass.wav."""
+    src = tmp_path / "Coll" / "track.wav"
+    _make_source(src)
+
+    dirty_out = tmp_path / "bass.wav"
+    clean_out = tmp_path / "bass_clean.wav"
+    extract_bass(src, output=dirty_out, output_clean=clean_out, cut_inputs=True)
+
+    assert dirty_out.exists()
+    assert clean_out.exists()
+    with wave.open(str(clean_out), "rb") as w:
+        assert w.getnchannels() == 1, f"expected mono, got {w.getnchannels()} channels"
+    with wave.open(str(dirty_out), "rb") as wd, wave.open(str(clean_out), "rb") as wc:
+        assert wc.getnframes() == wd.getnframes(), (
+            f"frame count mismatch: dirty={wd.getnframes()} clean={wc.getnframes()}"
+        )
+
+
+@pytest.mark.skipif(ffmpeg_missing, reason=skip_reason)
 def test_full_pipeline_slice_artifacts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """run_pipeline with slice_spec produces all six artifacts bearing the slice suffix.
 
