@@ -306,13 +306,22 @@ def render(
 
 
 @app.command(name="measure-bleed")
-def measure_bleed(collection_dir: Path) -> None:
+def measure_bleed(
+    collection_dir: Path,
+    exclude_count_in: Annotated[
+        bool,
+        typer.Option(
+            "--exclude-count-in",
+            help="Drop count-in-refined windows (likely spoken narration between examples) from scoring, so the metric reflects guitar bleed during playing rather than voice bleed during narration.",  # noqa: E501
+        ),
+    ] = False,
+) -> None:
     """Compare dirty vs clean residual guitar-bleed dB per track.
 
     Pass an out/<collection> directory (containing one subdirectory per
     track). Reuses each track's existing silence-windows JSON.
     """
-    rows = metrics_mod.scan_collection(collection_dir)
+    rows = metrics_mod.scan_collection(collection_dir, exclude_count_in=exclude_count_in)
     metrics_mod.print_report(rows)
 
 
