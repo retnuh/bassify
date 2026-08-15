@@ -50,13 +50,13 @@ def _resolve_font(font: str | None) -> str:
 
 
 def resolve_render_inputs(bass_only_m4a: Path) -> Path:
-    """Return the co-located bass.wav for a bass_only.m4a, or raise if missing."""
+    """Return the co-located bass_clean.wav for a bass_only.m4a, or raise if missing."""
     bass_only_m4a = Path(bass_only_m4a)
-    bass_wav = bass_only_m4a.with_name(bass_only_m4a.stem.replace("_bass_only", "_bass") + ".wav")
+    bass_wav = bass_only_m4a.with_name(bass_only_m4a.stem.replace("_bass_only", "_bass_clean") + ".wav")
     if not bass_wav.exists():
         raise FileNotFoundError(
-            f"No bass.wav alongside {bass_only_m4a}. Run 'bassify run' first "
-            f"(or 'bassify extract <dir>' to regenerate bass.wav). Expected: {bass_wav}"
+            f"No bass_clean.wav alongside {bass_only_m4a}. Run 'bassify run' first "
+            f"(or 'bassify extract <dir>' to regenerate it). Expected: {bass_wav}"
         )
     return bass_wav
 
@@ -204,12 +204,12 @@ def _source_stem(bass_only_m4a: Path) -> str:
 
 
 def render_batch(directory: Path, **kwargs) -> None:
-    """Render every *_bass_only*.m4a under directory that has a co-located bass.wav."""
+    """Render every *_bass_only*.m4a under directory that has a co-located bass_clean.wav."""
     directory = Path(directory)
     m4as = sorted(directory.rglob("*_bass_only*.m4a"))
     rendered = skipped = failed = 0
     for m in m4as:
-        bass_wav = m.with_name(m.stem.replace("_bass_only", "_bass") + ".wav")
+        bass_wav = m.with_name(m.stem.replace("_bass_only", "_bass_clean") + ".wav")
         if not bass_wav.exists():
             skipped += 1
             continue
@@ -220,5 +220,5 @@ def render_batch(directory: Path, **kwargs) -> None:
             print(f"  ERROR rendering {m.name}: {exc}")
             failed += 1
     print(
-        f"render batch done: {rendered} rendered, {skipped} skipped (no bass.wav), {failed} failed"
+        f"render batch done: {rendered} rendered, {skipped} skipped (no bass_clean.wav), {failed} failed"
     )
