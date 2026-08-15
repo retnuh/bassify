@@ -14,6 +14,7 @@ from bassify.extract import (
     build_filter,
     estimate_delay,
     fit_projection_gains,
+    project_clean_bass,
 )
 
 
@@ -98,3 +99,26 @@ def test_fit_projection_gains_raises_on_insufficient_data():
 
     with pytest.raises(InsufficientCalibrationData):
         fit_projection_gains(L, R, mask, sr=8000, hop_length=STFT_HOP, min_seconds=1.0)
+
+
+def test_project_clean_bass_cancels_reference_leakage_and_preserves_length():
+    sr = 8000
+    rng = np.random.default_rng(4)
+    n = sr * 4
+    bass = rng.standard_normal(n) * 0.3
+    bass[n // 2 :] = 0.0  # bass-free calibration region in the second half
+    guitar = rng.standard_normal(n)
+    true_h = 0.7  # flat mastering-gain mismatch for this test
+    l = bass + guitar
+    r = true_h * guitar
+
+    b_hat = project_clean_bass(l, r, sr)
+
+    assert len(b_hat) == n
+
+    residual_after = np.std(b_hat[n // 2 :])
+    residual_before = np.std(l[n // 2 :])
+    assert residual_after < 0.1 * residual_before
+
+    corr = np.corrcoef(bass[: n // 2], b_hat[: n // 2])[0, 1]
+    assert corr > 0.9

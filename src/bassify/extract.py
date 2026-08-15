@@ -4,7 +4,7 @@ from pathlib import Path
 
 import numpy as np
 from scipy.optimize import minimize_scalar
-from scipy.signal import correlate, correlation_lags
+from scipy.signal import correlate, correlation_lags, istft, stft
 
 from bassify.ffmpeg import run_ffmpeg, should_skip
 from bassify.paths import resolve_paths
@@ -148,6 +148,35 @@ def fit_projection_gains(
     denominator = np.sum(np.abs(R_masked) ** 2, axis=1)
     eps = eps_rel * np.mean(denominator)
     return numerator / (denominator + eps)
+
+
+def project_clean_bass(l: np.ndarray, r: np.ndarray, sr: int) -> np.ndarray:
+    """Cancel non-bass leakage from l using r as reference, returning a bass
+    estimate the same length as l.
+
+    Steps: time-align r to l, STFT both, fit a per-bin complex projection
+    gain from bass-free frames, subtract the projected reference, inverse-STFT.
+    Raises InsufficientCalibrationData (propagated from fit_projection_gains)
+    if the track doesn't have enough bass-free content to trust the fit.
+    """
+    n = len(l)
+    delay = estimate_delay(l, r, sr)
+    r_aligned = apply_fractional_delay(r, -delay)
+
+    freqs, _, L_stft = stft(l, fs=sr, nperseg=STFT_NPERSEG, noverlap=STFT_NOVERLAP)
+    _, _, R_stft = stft(r_aligned, fs=sr, nperseg=STFT_NPERSEG, noverlap=STFT_NOVERLAP)
+
+    mask = bass_free_frame_mask(L_stft, freqs)
+    h = fit_projection_gains(L_stft, R_stft, mask, sr=sr, hop_length=STFT_HOP)
+
+    B_stft = L_stft - h[:, None] * R_stft
+    _, bass = istft(B_stft, fs=sr, nperseg=STFT_NPERSEG, noverlap=STFT_NOVERLAP)
+
+    if len(bass) > n:
+        bass = bass[:n]
+    elif len(bass) < n:
+        bass = np.pad(bass, (0, n - len(bass)))
+    return bass
 
 
 def extract_bass(
