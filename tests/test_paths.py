@@ -39,3 +39,16 @@ def test_resolve_paths_render_artifacts():
     assert p.render_still_mp4.name == "03_Turnarounds_render_still_d10s.mp4"
     assert p.thumbnail_png.name == "03_Turnarounds_thumbnail_d10s.png"
     assert p.cover_jpg.name == "03_Turnarounds_cover_d10s.jpg"
+
+
+def test_default_layout_includes_bass_clean():
+    p = resolve_paths(Path("tracks/BluesBass/01_The Twelve Bar Blues Form.mp3"))
+    base = Path("out/BluesBass/01_The Twelve Bar Blues Form")
+    assert p.bass_clean == base / "01_The Twelve Bar Blues Form_bass_clean.wav"
+
+
+def test_slice_suffix_applied_to_bass_clean():
+    p = resolve_paths(
+        Path("tracks/BluesBass/01_x.mp3"), slice_spec=SliceSpec(duration=15, start=30)
+    )
+    assert p.bass_clean.name == "01_x_bass_clean_d15s_s30s.wav"
