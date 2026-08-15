@@ -19,13 +19,13 @@
     {
       "id": 28,
       "subject": "Task 3: Two source-referenced leak metrics",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** `metrics.py` reports both a rejection ratio (vs the original's high band) and a residual ratio (vs the original's bass), from a single decode of the source.\n\n**Files:**\n- Modify: `src/bassify/metrics.py:103-136` (function), `:139-177` (`scan_collection`), `:180-187` (`print_report`)\n- Modify: `src/bassify/cli.py:322-330` (docstring only)\n- Test: `tests/test_metrics.py:71-98` (rewrite), plus new tests\n\n**Acceptance Criteria:**\n- [ ] `compute_absolute_leak_db` is gone; `compute_source_referenced_leak_db` returns `tuple[float, float]` as `(rejection_db, residual_vs_bass_db)`\n- [ ] `rejection_db` = clean high-band RMS / original high-band RMS, in dB -- numerically identical to the old `compute_absolute_leak_db` for the same inputs\n- [ ] `residual_vs_bass_db` = clean high-band RMS / original LOW-band RMS, in dB\n- [ ] The original track is decoded exactly once per call\n- [ ] `scan_collection` rows carry both values; `print_report` prints four numeric columns\n- [ ] `compute_music_band_delta_db` and `_masked_bandpass_rms` are unchanged\n\n**Verify:** `uv run pytest tests/test_metrics.py -v` -> all pass\n\nFull steps with code in the plan document, Task 3.\n\n```json:metadata\n{\"files\": [\"src/bassify/metrics.py\", \"src/bassify/cli.py\", \"tests/test_metrics.py\"], \"verifyCommand\": \"uv run pytest tests/test_metrics.py -v\", \"acceptanceCriteria\": [\"compute_absolute_leak_db removed; compute_source_referenced_leak_db returns (rejection_db, residual_vs_bass_db)\", \"rejection_db equals the old absolute-leak value for the same inputs\", \"residual_vs_bass_db divides clean high-band by the original LOW-band RMS\", \"original track decoded exactly once per call\", \"scan_collection returns 5-tuples and print_report prints four numeric columns\", \"compute_music_band_delta_db and _masked_bandpass_rms unchanged\"], \"modelTier\": \"standard\"}\n```"
     },
     {
       "id": 29,
       "subject": "Task 4: Update real-track regression test",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** The integration regression test uses the new metric and asserts on both numbers.\n\n**Files:**\n- Modify: `tests/test_integration.py:219-226` (comment), `:248`, `:258`, `:260-273`\n\n**Acceptance Criteria:**\n- [ ] The test imports and calls `compute_source_referenced_leak_db`, unpacking both values\n- [ ] Both `rejection` and `residual` are asserted with thresholds derived from an actual measurement run (not guessed), with ~5 dB headroom\n- [ ] The printed diagnostic line includes both numbers\n- [ ] The explanatory comment block reflects the current metric, not the removed one\n\n**Verify:** `uv run pytest tests/test_integration.py -k known_bad -v` -> PASS for both tracks, or SKIP if the real tracks/ffmpeg are absent (report which)\n\nFull steps with code in the plan document, Task 4. Step 1 measures real values before writing thresholds -- do not guess them.\n\n```json:metadata\n{\"files\": [\"tests/test_integration.py\"], \"verifyCommand\": \"uv run pytest tests/test_integration.py -k known_bad -v\", \"acceptanceCriteria\": [\"Test calls compute_source_referenced_leak_db and unpacks both values\", \"Thresholds derived from a real measurement run with ~5dB headroom, not guessed\", \"Diagnostic print includes rejection and residual\", \"Comment block describes the current metric and why the two earlier designs were discarded\"], \"modelTier\": \"standard\"}\n```",
       "blockedBy": [
         28
@@ -34,7 +34,7 @@
     {
       "id": 30,
       "subject": "Task 5: Full gate check and collection re-render",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** The whole repo gate is green, and all 43 tracks are regenerated with the new backstop.\n\n**Files:** none modified -- this task runs commands and reports numbers.\n\n**Acceptance Criteria:**\n- [ ] `just check` passes (lint + format-check + full test suite), exit 0\n- [ ] All 43 tracks under `out/BluesBass` are regenerated with the 12-pole backstop\n- [ ] `bassify measure-bleed out/BluesBass` runs and prints four columns for every track\n- [ ] BEFORE and AFTER measure-bleed output are both captured and compared in the task report\n- [ ] Any per-track render/run failures are collected and reported, not silently skipped\n\n**Verify:** `just check` -> exit 0; `uv run bassify measure-bleed out/BluesBass` -> 43 rows, four numeric columns\n\nCommands need `dangerouslyDisableSandbox: true` (uv cache, ffmpeg, tracks/out symlink targets). Expected direction: high-band delta and both source-referenced numbers become MORE negative; low-band delta barely moves. Report any track that moves the wrong way.\n\nFull steps in the plan document, Task 5.\n\n```json:metadata\n{\"files\": [], \"verifyCommand\": \"just check && uv run bassify measure-bleed out/BluesBass\", \"acceptanceCriteria\": [\"just check exits 0\", \"All 43 tracks regenerated with the 12-pole backstop\", \"measure-bleed prints four columns for every track\", \"BEFORE and AFTER measure-bleed output captured and compared\", \"Per-track failures collected and reported\"], \"requireEvidenceTokens\": [[\"before\", \"measure-before\"], [\"after\", \"measure-after\"]], \"modelTier\": \"standard\"}\n```",
       "blockedBy": [
         26,
@@ -46,9 +46,9 @@
     {
       "id": 31,
       "subject": "Task 6: Document the rejected approaches",
-      "status": "pending",
+      "status": "completed",
       "description": "**Goal:** `docs/bass-extraction-pipeline.md` explains what was measured and rejected, so it is not rebuilt.\n\n**Files:**\n- Modify: `docs/bass-extraction-pipeline.md` -- new `### What was tried and rejected` subsection after `### Caveat: imperfect cancellation` (ends line 51), before `## 2. Detect the gaps` (line 52)\n\n**Acceptance Criteria:**\n- [ ] The new subsection covers: asupercut's 20 kHz floor, Approach B, NLMS, the coherence ceiling, and the edge-clustering of bass-free frames\n- [ ] Each rejection cites the measurement that produced it, not just the conclusion\n- [ ] The experiment scripts under `experiments/` are named so the measurements can be re-run\n\n**Verify:** `grep -c \"asupercut\\|coherence\\|NLMS\" docs/bass-extraction-pipeline.md` -> at least 3\n\nFull prose to insert is in the plan document, Task 6.\n\n```json:metadata\n{\"files\": [\"docs/bass-extraction-pipeline.md\"], \"verifyCommand\": \"grep -c 'asupercut\\\\|coherence\\\\|NLMS' docs/bass-extraction-pipeline.md\", \"acceptanceCriteria\": [\"Subsection covers asupercut range, Approach B, NLMS, coherence ceiling, edge-clustered bass-free frames\", \"Each rejection cites its measurement\", \"experiments/ scripts named for re-running\"], \"modelTier\": \"mechanical\"}\n```"
     }
   ],
-  "lastUpdated": "2026-08-15T20:22:21.991703"
+  "lastUpdated": "2026-08-15T21:20:27.427666"
 }
