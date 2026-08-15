@@ -22,6 +22,7 @@ def test_run_pipeline_call_order_and_slice_threading(monkeypatch, tmp_path):
     def fake_extract_bass(
         input_path,
         output=None,
+        output_clean=None,
         lowpass=DEFAULT_LOWPASS,
         slice_spec=None,
         cut_inputs=True,
@@ -115,6 +116,59 @@ def test_run_pipeline_call_order_and_slice_threading(monkeypatch, tmp_path):
     assert encode_suffixes[paths.remix_m4a] is None
 
 
+def test_run_pipeline_wires_bass_clean_to_combine_not_dirty_bass(monkeypatch, tmp_path):
+    """extract_bass gets output_clean=paths.bass_clean; combine_track gets
+    paths.bass_clean (not the dirty bass path) as its bass input."""
+    input_mp3 = tmp_path / "tracks" / "Band" / "05_Song.mp3"
+    input_mp3.parent.mkdir(parents=True)
+    input_mp3.touch()
+
+    paths = resolve_paths(input_mp3)
+    calls = {}
+
+    def fake_extract_bass(
+        input_path,
+        output=None,
+        output_clean=None,
+        lowpass=DEFAULT_LOWPASS,
+        slice_spec=None,
+        cut_inputs=True,
+        force=False,
+    ):
+        calls["extract_output_clean"] = output_clean
+        return paths.bass
+
+    def fake_detect_windows(bass_path, **kwargs):
+        calls["detect_bass_path"] = bass_path
+        return paths.windows
+
+    def fake_combine_track(bass_path, original_path, windows_path, **kwargs):
+        calls["combine_bass_path"] = bass_path
+        return paths.bass_only
+
+    def fake_remix_track(combined_path, original_path, **kwargs):
+        return paths.remix
+
+    def fake_encode_track(wav_path, original_path, **kwargs):
+        pass
+
+    import bassify.pipeline as pipeline_mod
+
+    monkeypatch.setattr(pipeline_mod, "extract_bass", fake_extract_bass)
+    monkeypatch.setattr(pipeline_mod, "detect_windows", fake_detect_windows)
+    monkeypatch.setattr(pipeline_mod, "combine_track", fake_combine_track)
+    monkeypatch.setattr(pipeline_mod, "remix_track", fake_remix_track)
+    monkeypatch.setattr(pipeline_mod, "encode_track", fake_encode_track)
+
+    from bassify.pipeline import run_pipeline
+
+    run_pipeline(input_mp3)
+
+    assert calls["extract_output_clean"] == paths.bass_clean
+    assert calls["detect_bass_path"] == paths.bass
+    assert calls["combine_bass_path"] == paths.bass_clean
+
+
 def test_run_pipeline_passes_lowpass_through(monkeypatch, tmp_path):
     """run_pipeline forwards the caller's lowpass value (including None) to extract."""
     input_mp3 = tmp_path / "tracks" / "Band" / "02_Song.mp3"
@@ -127,6 +181,7 @@ def test_run_pipeline_passes_lowpass_through(monkeypatch, tmp_path):
     def fake_extract_bass(
         input_path,
         output=None,
+        output_clean=None,
         lowpass=DEFAULT_LOWPASS,
         slice_spec=None,
         cut_inputs=True,

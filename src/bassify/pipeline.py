@@ -33,6 +33,7 @@ def run_pipeline(
     bass = extract_bass(
         input_path,
         output=paths.bass,
+        output_clean=paths.bass_clean,
         lowpass=lowpass,
         slice_spec=slice_spec,
         cut_inputs=True,
@@ -48,7 +49,7 @@ def run_pipeline(
         original_path=input_path,
     )
     bass_only = combine_track(
-        bass,
+        paths.bass_clean,
         input_path,
         windows,
         output=paths.bass_only,
