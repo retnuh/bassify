@@ -407,7 +407,10 @@ def test_rejection_and_residual_differ_when_source_band_balance_differs(tmp_path
     n = sr * 4
     t = np.arange(n) / sr
     bass = 0.3 * np.sin(2 * np.pi * 80 * t)
-    guitar = 0.3 * np.sin(2 * np.pi * 2000 * t)
+    # Amplitudes chosen so the "bright" source (bass + 4.0*guitar) peaks at 0.9:
+    # PCM_24 clamps to +/-1, and clipping the write corrupts the low band that
+    # residual_vs_bass_db divides by.
+    guitar = 0.15 * np.sin(2 * np.pi * 2000 * t)
     windows_path = _write_windows(tmp_path, [{"start": 0.0, "end": 1.0}])
 
     clean_p = tmp_path / "clean.wav"
