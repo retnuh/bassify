@@ -210,3 +210,66 @@ def test_sliced_pipeline_length_invariant(tmp_path: Path, monkeypatch: pytest.Mo
         assert remix_frames == bass_frames, (
             f"sliced length invariant broken: remix {remix_frames} != bass {bass_frames}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Real-track regression: known-bad tracks 06 and 40
+# ---------------------------------------------------------------------------
+#
+# Scored with metrics.compute_music_band_delta_db / compute_absolute_leak_db
+# (dirty-vs-clean band comparison during active music, plus an absolute
+# cleanliness score against the original track) -- NOT the earlier
+# silence-window residual approach, which was found during manual review to
+# conflate voice/narration bleed in count-in windows with actual guitar
+# bleed during playing, producing misleading "regression" signals on
+# instructional tracks with spoken narration between examples. See the
+# guitar-cancellation handoff doc for the full investigation.
+
+_REGRESSION_TRACKS_DIR = Path("tracks/BluesBass")
+_REGRESSION_TRACKS = ["06_Dyna Flow.mp3", "40_The Thrill Is Gone.mp3"]
+_missing_regression_tracks = [
+    t for t in _REGRESSION_TRACKS if not (_REGRESSION_TRACKS_DIR / t).exists()
+]
+
+
+@pytest.mark.skipif(ffmpeg_missing, reason=skip_reason)
+@pytest.mark.skipif(
+    bool(_missing_regression_tracks),
+    reason=f"real tracks not found locally: {_missing_regression_tracks}",
+)
+@pytest.mark.parametrize("track_name", _REGRESSION_TRACKS)
+def test_clean_bass_reduces_leak_on_known_bad_tracks(
+    track_name: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression check on real known-bad tracks: the clean bass must show
+    genuine, substantial leak reduction relative to both the naive baseline
+    and the original track -- not just a directionally-better number."""
+    from bassify.detect import detect_windows
+    from bassify.metrics import compute_absolute_leak_db, compute_music_band_delta_db
+
+    src = (_REGRESSION_TRACKS_DIR / track_name).resolve()
+    monkeypatch.chdir(tmp_path)
+
+    p = resolve_paths(src)
+    extract_bass(src, force=True)
+    windows = detect_windows(p.bass, original_path=src, force=True)
+
+    high_delta, low_delta = compute_music_band_delta_db(p.bass, p.bass_clean, windows)
+    absolute_leak = compute_absolute_leak_db(p.bass_clean, src, windows)
+
+    print(
+        f"{track_name}: high-band Δ={high_delta:.1f}dB low-band Δ={low_delta:.1f}dB "
+        f"abs leak vs original={absolute_leak:.1f}dB"
+    )
+
+    assert high_delta < 0, (
+        f"{track_name}: high-band leak did not improve (Δ={high_delta:.1f}dB)"
+    )
+    assert abs(low_delta) < 5.0, (
+        f"{track_name}: bass itself moved too much (low-band Δ={low_delta:.1f}dB) "
+        "-- projection may be damaging bass, not just cancelling guitar"
+    )
+    assert absolute_leak < -15.0, (
+        f"{track_name}: not enough of the original's high-band content was removed "
+        f"(abs leak={absolute_leak:.1f}dB, need < -15.0dB)"
+    )
