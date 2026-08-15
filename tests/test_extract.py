@@ -159,3 +159,39 @@ def test_extract_bass_output_clean_defaults_from_resolve_paths(tmp_path, monkeyp
 
     assert out == resolve_paths(input_mp3).bass
     assert calls == [expected_clean]
+
+
+def test_extract_bass_clean_falls_back_when_asupercut_unavailable(tmp_path, monkeypatch, capsys):
+    """_extract_bass_clean: when the asupercut ffmpeg call raises FfmpegError,
+    fall back to the double-lowpass chain and log it -- exercising the
+    try/except FfmpegError branch that no other test reaches (the wiring
+    unit test mocks out _extract_bass_clean entirely, and the real-ffmpeg
+    integration test runs against a build that has asupercut)."""
+    from bassify import extract as extract_mod
+    from bassify.ffmpeg import FfmpegError
+    from bassify.slice import SliceSpec
+
+    ffmpeg_calls: list[list[str]] = []
+
+    def fake_run_ffmpeg(args):
+        ffmpeg_calls.append(list(args))
+        if extract_mod.ASUPERCUT_FILTER in args:
+            raise FfmpegError("asupercut filter not supported by this ffmpeg build")
+
+    monkeypatch.setattr(extract_mod, "run_ffmpeg", fake_run_ffmpeg)
+
+    fake_stereo = np.zeros((100, 2))
+    monkeypatch.setattr(extract_mod.sf, "read", lambda *a, **k: (fake_stereo, 8000))
+    monkeypatch.setattr(extract_mod.sf, "write", lambda *a, **k: None)
+    monkeypatch.setattr(extract_mod, "project_clean_bass", lambda l, r, sr: np.zeros(100))
+
+    out_clean = tmp_path / "bass_clean.wav"
+    extract_mod._extract_bass_clean(tmp_path / "input.wav", out_clean, SliceSpec(), True)
+
+    asupercut_calls = [c for c in ffmpeg_calls if extract_mod.ASUPERCUT_FILTER in c]
+    fallback_calls = [c for c in ffmpeg_calls if extract_mod.ASUPERCUT_FALLBACK_FILTER in c]
+    assert len(asupercut_calls) == 1, "expected exactly one attempted asupercut call"
+    assert len(fallback_calls) == 1, "expected the fallback filter to actually be invoked"
+
+    captured = capsys.readouterr()
+    assert "asupercut unavailable" in captured.out
