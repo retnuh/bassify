@@ -24,6 +24,7 @@ def padded_frame(basefreq: float, endfreq: float) -> tuple[float, float]:
 def _midi(freq: float) -> int:
     return round(12 * math.log2(freq / 440.0) + 69)
 
+
 _BLUES_BIG = frozenset({0, 3, 5, 7, 10})  # 1, b3, 4, 5, b7
 _FLAT5 = frozenset({6})  # b5 — blue note (red, medium)
 

@@ -9,6 +9,7 @@ from bassify import combine as combine_mod
 from bassify import detect as detect_mod
 from bassify import encode as encode_mod
 from bassify import extract as extract_mod
+from bassify import metrics as metrics_mod
 from bassify import remix as remix_mod
 from bassify.pipeline import extract_batch, run_batch, run_pipeline
 from bassify.render import render_batch, render_track
@@ -34,20 +35,22 @@ def extract(
         float,
         typer.Option(
             "--lowpass",
-            help="Low-pass cutoff Hz to tame subtraction residue (default: 800). Use --no-lowpass to disable.",  # noqa: E501
+            help="Low-pass cutoff Hz to tame subtraction residue on the dirty bass.wav (default: 800; used for silence detection only -- bass_clean.wav has its own fixed 800Hz backstop). Use --no-lowpass to disable.",  # noqa: E501
         ),
     ] = extract_mod.DEFAULT_LOWPASS,
     no_lowpass: Annotated[
         bool,
         typer.Option(
-            "--no-lowpass", help="Disable the low-pass filter entirely (overrides --lowpass)."
-        ),  # noqa: E501
+            "--no-lowpass",
+            help="Disable the low-pass filter on the dirty bass.wav entirely (overrides --lowpass; does not affect bass_clean.wav).",  # noqa: E501
+        ),
     ] = False,
     duration: DurationOpt = None,
     start: StartOpt = None,
     force: Annotated[bool, typer.Option("--force", help="Overwrite existing output.")] = False,
 ) -> None:
-    """L-R subtraction -> mono bass WAV.
+    """L-R subtraction -> mono bass WAV, plus a per-bin-projection-cleaned
+    bass_clean.wav (always produced alongside, not affected by --lowpass).
 
     Pass a single audio file, or a directory to extract every audio file in it
     (non-recursive, sorted, per-track error handling). Handy for regenerating
@@ -188,14 +191,15 @@ def run(
         float,
         typer.Option(
             "--lowpass",
-            help="Low-pass cutoff Hz for extract (default: 800). Use --no-lowpass to disable.",
+            help="Low-pass cutoff Hz for the dirty bass.wav used in extract (default: 800; silence detection only -- bass_clean.wav has its own fixed 800Hz backstop). Use --no-lowpass to disable.",  # noqa: E501
         ),
     ] = extract_mod.DEFAULT_LOWPASS,
     no_lowpass: Annotated[
         bool,
         typer.Option(
-            "--no-lowpass", help="Disable the low-pass filter entirely (overrides --lowpass)."
-        ),  # noqa: E501
+            "--no-lowpass",
+            help="Disable the low-pass filter on the dirty bass.wav entirely (overrides --lowpass; does not affect bass_clean.wav).",  # noqa: E501
+        ),
     ] = False,
     threshold: Annotated[
         float, typer.Option("--threshold", help="silencedetect noise floor in dB.")
@@ -302,6 +306,30 @@ def render(
         print("note: full-length render can take minutes (CQT is ~0.5-2x realtime).")
         print("tip: add --duration 30 to preview a slice first.")
     render_track(input_path, **kwargs)
+
+
+@app.command(name="measure-bleed")
+def measure_bleed(
+    collection_dir: Path,
+    band_cutoff: Annotated[
+        float,
+        typer.Option(
+            "--band-cutoff",
+            help="Hz boundary between the bass band and the guitar/leak band.",
+        ),
+    ] = 800.0,
+) -> None:
+    """Compare dirty vs clean bass during active music (outside silence gaps).
+
+    Pass an out/<collection> directory (containing one subdirectory per
+    track). For each track, reports the dB change from bass.wav to
+    bass_clean.wav in a high band (guitar/leak range) and a low band (bass
+    range), measured only where music is actually playing -- silence-window
+    gaps (count-in, narration) are excluded since there's no music there to
+    compare.
+    """
+    rows = metrics_mod.scan_collection(collection_dir, band_cutoff=band_cutoff)
+    metrics_mod.print_report(rows)
 
 
 if __name__ == "__main__":

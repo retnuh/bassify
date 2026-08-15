@@ -9,7 +9,7 @@ import pytest
 
 from bassify.paths import resolve_paths
 from bassify.pipeline import run_pipeline
-from bassify.render import render_track
+from bassify.render import render_track, resolve_render_inputs
 from bassify.render.key import detect_key
 from bassify.slice import SliceSpec
 
@@ -138,8 +138,26 @@ def test_detect_key_returns_pitch_class(tmp_path: Path) -> None:
     assert pc is None or 0 <= pc <= 11
 
 
+def test_resolve_render_inputs_looks_for_bass_clean(tmp_path: Path) -> None:
+    bass_only = tmp_path / "01_Song_bass_only.m4a"
+    bass_only.touch()
+    bass_clean = tmp_path / "01_Song_bass_clean.wav"
+    bass_clean.touch()
+
+    assert resolve_render_inputs(bass_only) == bass_clean
+
+
+def test_resolve_render_inputs_raises_without_bass_clean(tmp_path: Path) -> None:
+    bass_only = tmp_path / "01_Song_bass_only.m4a"
+    bass_only.touch()
+    # no _bass_clean.wav sibling created
+
+    with pytest.raises(FileNotFoundError):
+        resolve_render_inputs(bass_only)
+
+
 @pytest.mark.skipif(ffmpeg_missing, reason=skip_reason)
-def test_render_errors_without_bass_wav(tmp_path: Path) -> None:
+def test_render_errors_without_bass_clean(tmp_path: Path) -> None:
     lonely = tmp_path / "99_Nope_bass_only.m4a"
     lonely.write_bytes(b"not really an m4a")
     with pytest.raises(FileNotFoundError):

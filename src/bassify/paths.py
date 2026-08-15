@@ -10,6 +10,7 @@ from bassify.slice import SliceSpec
 class Paths:
     track_dir: Path
     bass: Path
+    bass_clean: Path
     windows: Path
     bass_only: Path
     remix: Path
@@ -46,6 +47,7 @@ def resolve_paths(
     return Paths(
         track_dir=track_dir,
         bass=name("bass", "wav"),
+        bass_clean=name("bass_clean", "wav"),
         windows=name("silence_windows", "json"),
         bass_only=name("bass_only", "wav"),
         remix=name("remix", "wav"),
