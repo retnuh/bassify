@@ -134,6 +134,85 @@ def test_extract_bass_produces_frame_exact_dirty_and_clean(tmp_path: Path) -> No
 
 
 @pytest.mark.skipif(ffmpeg_missing, reason=skip_reason)
+def test_bass_clean_backstop_attenuates_above_the_cutoff(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The written bass_clean.wav must actually be lowpassed.
+
+    No test asserted this before, which is why the asupercut backstop could
+    fail on every single track without anything going red. A 2000 Hz tone
+    sits well past the 800 Hz corner; at 12 poles it should be crushed
+    relative to a 200 Hz tone of equal input amplitude.
+
+    The 40 dB bound is deliberately loose -- the 4-pole fallback would pass
+    it too. Distinguishing 4 poles from 12 is the job of the
+    BACKSTOP_FILTER constant test; this test's job is proving the filter
+    runs at all.
+    """
+    import numpy as np
+    import soundfile as sf
+    from scipy.signal import butter, sosfiltfilt
+
+    # NOTE: two deviations from the brief's literal fixture, both verified
+    # necessary by actually running Step 4 (temporarily gutting the backstop
+    # and re-running):
+    #
+    # 1. Duration: sr*3 (3s) -> sr*6 (6s). bass_free_frame_mask selects a
+    #    fixed 30th percentile of frames as "bass-free" regardless of clip
+    #    length, while fit_projection_gains requires >=1.0s worth of such
+    #    frames (a fixed frame count, independent of clip duration). 30% of
+    #    3s (~0.9s) falls just short of that fixed 1.0s floor, so a 3s clip
+    #    always raised InsufficientCalibrationData before the backstop ever
+    #    ran. 6s clears the floor with margin (~1.8s of bass-free frames).
+    #
+    # 2. Reference tone: R no longer carries a bit-for-bit-identical copy of
+    #    the 2kHz leak. With an exact copy, the linear per-bin projection
+    #    alone (project_clean_bass) cancels the 2kHz tone to ~-77dB with NO
+    #    backstop at all -- confirmed by stubbing the backstop call and
+    #    re-running, per Step 4. That means the original fixture couldn't
+    #    prove the backstop does anything; it would pass even with the
+    #    filter deleted, recreating exactly the blind spot this test exists
+    #    to close. Adding small independent (uncorrelated) per-channel noise
+    #    models the fact that real guitar bleed is never a perfectly
+    #    coherent copy between channels -- the projection can't cancel the
+    #    part of a channel's content that has no counterpart in the other
+    #    channel, so a real residual is left behind for the lowpass backstop
+    #    to actually remove. Verified: stubbed backstop -> -30.3dB (fails
+    #    the < -40dB bound, as required); real backstop -> -123.5dB (passes
+    #    with wide margin).
+    sr = 44100
+    t = np.arange(sr * 6) / sr
+    rng = np.random.default_rng(0)
+    low_tone = 0.3 * np.sin(2 * np.pi * 200 * t)
+    high_tone = 0.3 * np.sin(2 * np.pi * 2000 * t)
+    noise_l = 0.04 * rng.standard_normal(len(t))
+    noise_r = 0.04 * rng.standard_normal(len(t))
+    # L carries both; R carries only the high tone (plus its own independent
+    # noise), so the projection has a reference to cancel and the low tone
+    # survives as "bass".
+    stereo = np.stack([low_tone + high_tone + noise_l, high_tone + noise_r], axis=1)
+
+    src = tmp_path / "tones.wav"
+    sf.write(str(src), stereo, sr, subtype="PCM_24")
+
+    monkeypatch.chdir(tmp_path)
+    extract_bass(src, force=True)
+    clean_path = resolve_paths(src).bass_clean
+
+    y, out_sr = sf.read(str(clean_path), dtype="float64", always_2d=False)
+
+    def band_rms(low, high):
+        sos = butter(4, [low, high], btype="bandpass", fs=out_sr, output="sos")
+        return float(np.sqrt(np.mean(sosfiltfilt(sos, y) ** 2)))
+
+    low_rms = band_rms(150, 250)
+    high_rms = band_rms(1800, 2200)
+    ratio_db = 20 * np.log10(max(high_rms, 1e-12) / max(low_rms, 1e-12))
+
+    assert ratio_db < -40, f"backstop did not attenuate: 2kHz is only {ratio_db:.1f}dB below 200Hz"
+
+
+@pytest.mark.skipif(ffmpeg_missing, reason=skip_reason)
 def test_full_pipeline_slice_artifacts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """run_pipeline with slice_spec produces all six artifacts bearing the slice suffix.
 
