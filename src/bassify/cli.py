@@ -308,20 +308,24 @@ def render(
 @app.command(name="measure-bleed")
 def measure_bleed(
     collection_dir: Path,
-    exclude_count_in: Annotated[
-        bool,
+    band_cutoff: Annotated[
+        float,
         typer.Option(
-            "--exclude-count-in",
-            help="Drop count-in-refined windows (likely spoken narration between examples) from scoring, so the metric reflects guitar bleed during playing rather than voice bleed during narration.",  # noqa: E501
+            "--band-cutoff",
+            help="Hz boundary between the bass band and the guitar/leak band.",
         ),
-    ] = False,
+    ] = 800.0,
 ) -> None:
-    """Compare dirty vs clean residual guitar-bleed dB per track.
+    """Compare dirty vs clean bass during active music (outside silence gaps).
 
     Pass an out/<collection> directory (containing one subdirectory per
-    track). Reuses each track's existing silence-windows JSON.
+    track). For each track, reports the dB change from bass.wav to
+    bass_clean.wav in a high band (guitar/leak range) and a low band (bass
+    range), measured only where music is actually playing -- silence-window
+    gaps (count-in, narration) are excluded since there's no music there to
+    compare.
     """
-    rows = metrics_mod.scan_collection(collection_dir, exclude_count_in=exclude_count_in)
+    rows = metrics_mod.scan_collection(collection_dir, band_cutoff=band_cutoff)
     metrics_mod.print_report(rows)
 
 
