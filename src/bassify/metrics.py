@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import librosa
 import numpy as np
 import soundfile as sf
 from scipy.signal import butter, sosfiltfilt
@@ -27,6 +28,19 @@ def _bandpass_rms(y: np.ndarray, sr: int, low: float | None, high: float | None)
         sos = butter(4, [low, high], btype="bandpass", fs=sr, output="sos")
         filtered = sosfiltfilt(sos, y)
     return float(np.sqrt(np.mean(filtered**2)))
+
+
+def _music_mask(n: int, sr: int, windows_path: Path) -> np.ndarray:
+    """Boolean mask, True where active music plays -- everywhere outside the
+    detected silence windows (count-in, narration gaps).
+    """
+    windows = json.loads(Path(windows_path).read_text())
+    silent_mask = np.zeros(n, dtype=bool)
+    for w in windows:
+        start_sample = int(w["start"] * sr)
+        end_sample = min(int(w["end"] * sr), n)
+        silent_mask[start_sample:end_sample] = True
+    return ~silent_mask
 
 
 def compute_music_band_delta_db(
@@ -61,13 +75,7 @@ def compute_music_band_delta_db(
     n = min(len(yd), len(yc))
     yd, yc = yd[:n], yc[:n]
 
-    windows = json.loads(Path(windows_path).read_text())
-    silent_mask = np.zeros(n, dtype=bool)
-    for w in windows:
-        start_sample = int(w["start"] * sr)
-        end_sample = min(int(w["end"] * sr), n)
-        silent_mask[start_sample:end_sample] = True
-    music_mask = ~silent_mask
+    music_mask = _music_mask(n, sr, windows_path)
 
     yd_music = yd[music_mask]
     yc_music = yc[music_mask]
@@ -82,13 +90,58 @@ def compute_music_band_delta_db(
     return float(high_delta), float(low_delta)
 
 
-def scan_collection(collection_dir: Path, band_cutoff: float = 800.0) -> list[tuple[str, float, float]]:
+def compute_absolute_leak_db(
+    clean_path: Path,
+    original_path: Path,
+    windows_path: Path,
+    band_cutoff: float = 800.0,
+) -> float:
+    """How much of the ORIGINAL track's high-band (guitar-range) energy
+    still survives in bass_clean.wav, during active music.
+
+    This is an absolute cleanliness score, independent of the naive
+    baseline (bass.wav) -- unlike compute_music_band_delta_db, which only
+    tells you how much was removed relative to the naive method, this tells
+    you how clean the deliverable actually is. Use it to drive improvement
+    toward a real target (e.g. "-20dB vs the original") rather than just
+    "better than dirty bass.wav" -- a track that started nearly guitar-free
+    and a track that started terrible but was only partly fixed can show
+    the same delta, but very different absolute cleanliness.
+
+    Lower (more negative) = cleaner: less of the original mix's high-band
+    content leaks through into the isolated bass.
+    """
+    yc, sr = sf.read(str(clean_path), dtype="float64", always_2d=False)
+    yo = librosa.load(str(original_path), sr=sr, mono=True)[0].astype(np.float64)
+
+    n = min(len(yc), len(yo))
+    yc, yo = yc[:n], yo[:n]
+
+    music_mask = _music_mask(n, sr, windows_path)
+
+    clean_high = _bandpass_rms(yc[music_mask], sr, low=band_cutoff, high=None)
+    original_high = _bandpass_rms(yo[music_mask], sr, low=band_cutoff, high=None)
+
+    ratio = clean_high / max(original_high, 1e-12)
+    return float(20 * np.log10(max(ratio, 1e-12)))
+
+
+def scan_collection(
+    collection_dir: Path, band_cutoff: float = 800.0
+) -> list[tuple[str, float, float, float | None]]:
     """For each track directory under collection_dir with both a dirty
     bass.wav and a bass_clean.wav, compute (name, high_band_delta_db,
-    low_band_delta_db) via compute_music_band_delta_db.
+    low_band_delta_db, absolute_leak_db).
+
+    absolute_leak_db is None when the original source track can't be found
+    at tracks/<collection>/<track_name>.* (e.g. a differently-named or
+    missing source file).
     """
-    rows: list[tuple[str, float, float]] = []
-    for track_dir in sorted(Path(collection_dir).iterdir()):
+    collection_dir = Path(collection_dir)
+    tracks_dir = Path("tracks") / collection_dir.name
+
+    rows: list[tuple[str, float, float, float | None]] = []
+    for track_dir in sorted(collection_dir.iterdir()):
         if not track_dir.is_dir():
             continue
         windows_path = next(track_dir.glob("*_silence_windows*.json"), None)
@@ -101,11 +154,24 @@ def scan_collection(collection_dir: Path, band_cutoff: float = 800.0) -> list[tu
         high_delta, low_delta = compute_music_band_delta_db(
             bass_path, bass_clean_path, windows_path, band_cutoff=band_cutoff
         )
-        rows.append((track_dir.name, high_delta, low_delta))
+
+        original_path = next(tracks_dir.glob(f"{track_dir.name}.*"), None)
+        absolute_leak = (
+            compute_absolute_leak_db(
+                bass_clean_path, original_path, windows_path, band_cutoff=band_cutoff
+            )
+            if original_path is not None
+            else None
+        )
+        rows.append((track_dir.name, high_delta, low_delta, absolute_leak))
     return rows
 
 
-def print_report(rows: list[tuple[str, float, float]]) -> None:
-    print(f"{'track':<45} {'high-band Δ (dB)':>16} {'low-band Δ (dB)':>16}")
-    for name, high_delta, low_delta in rows:
-        print(f"{name:<45} {high_delta:>16.1f} {low_delta:>16.1f}")
+def print_report(rows: list[tuple[str, float, float, float | None]]) -> None:
+    print(
+        f"{'track':<45} {'high-band Δ (dB)':>16} {'low-band Δ (dB)':>16} "
+        f"{'abs leak vs orig (dB)':>22}"
+    )
+    for name, high_delta, low_delta, absolute_leak in rows:
+        abs_str = f"{absolute_leak:.1f}" if absolute_leak is not None else "n/a"
+        print(f"{name:<45} {high_delta:>16.1f} {low_delta:>16.1f} {abs_str:>22}")
