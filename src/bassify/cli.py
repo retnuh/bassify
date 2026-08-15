@@ -9,6 +9,7 @@ from bassify import combine as combine_mod
 from bassify import detect as detect_mod
 from bassify import encode as encode_mod
 from bassify import extract as extract_mod
+from bassify import metrics as metrics_mod
 from bassify import remix as remix_mod
 from bassify.pipeline import extract_batch, run_batch, run_pipeline
 from bassify.render import render_batch, render_track
@@ -302,6 +303,17 @@ def render(
         print("note: full-length render can take minutes (CQT is ~0.5-2x realtime).")
         print("tip: add --duration 30 to preview a slice first.")
     render_track(input_path, **kwargs)
+
+
+@app.command(name="measure-bleed")
+def measure_bleed(collection_dir: Path) -> None:
+    """Compare dirty vs clean residual guitar-bleed dB per track.
+
+    Pass an out/<collection> directory (containing one subdirectory per
+    track). Reuses each track's existing silence-windows JSON.
+    """
+    rows = metrics_mod.scan_collection(collection_dir)
+    metrics_mod.print_report(rows)
 
 
 if __name__ == "__main__":
