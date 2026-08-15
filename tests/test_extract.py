@@ -109,15 +109,24 @@ def test_project_clean_bass_cancels_reference_leakage_and_preserves_length():
     bass[n // 2 :] = 0.0  # bass-free calibration region in the second half
     guitar = rng.standard_normal(n)
     true_h = 0.7  # flat mastering-gain mismatch for this test
+    # Fractional samples; r's guitar content lags l's by this much. Chosen large
+    # relative to STFT_HOP (512) so a wrong-sign alignment correction produces a
+    # net frame-index misalignment that the per-bin projection gain cannot
+    # absorb (small residual delays, well under one hop, are just a linear
+    # phase per frequency bin and get silently corrected by the projection fit
+    # regardless of alignment sign -- see task-4-report.md for the empirical
+    # sweep that found this threshold).
+    true_delay = 250.7
     l = bass + guitar
-    r = true_h * guitar
+    r = true_h * apply_fractional_delay(guitar, true_delay)
 
     b_hat = project_clean_bass(l, r, sr)
 
     assert len(b_hat) == n
 
+    naive_residual = l - r  # naive-subtraction residual, unaligned and ungained
     residual_after = np.std(b_hat[n // 2 :])
-    residual_before = np.std(l[n // 2 :])
+    residual_before = np.std(naive_residual[n // 2 :])
     assert residual_after < 0.1 * residual_before
 
     corr = np.corrcoef(bass[: n // 2], b_hat[: n // 2])[0, 1]
