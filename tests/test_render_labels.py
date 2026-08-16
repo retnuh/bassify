@@ -65,8 +65,12 @@ def test_note_tier_with_root_E():
     assert note_tier(9, E) == "big"  # A = 4
     assert note_tier(11, E) == "big"  # B = 5
     assert note_tier(2, E) == "big"  # D = b7
-    assert note_tier(10, E) == "med"  # A# = b5
-    assert note_tier(5, E) == "small"  # F
+    assert note_tier(10, E) == "big"  # A# = b5 -- in the scale; set apart by colour
+    assert note_tier(6, E) == "mid"  # F# = 2
+    assert note_tier(8, E) == "mid"  # G# = 3
+    assert note_tier(1, E) == "mid"  # C# = 6 (major 6th)
+    assert note_tier(5, E) == "small"  # F = b2
+    assert note_tier(0, E) == "small"  # C = b6
 
 
 def test_note_tier_none_root_all_big():
@@ -86,3 +90,38 @@ def test_build_axis_strip_keyless_ok(tmp_path: Path):
     out = tmp_path / "axis_neutral.png"
     build_axis_strip(out, width=W, basefreq=BASE, endfreq=END, root_pc=None)
     assert Image.open(out).size == (W, AXIS_H)
+
+
+def test_note_color_reserves_hue_for_root_and_flat5():
+    """Only the root and the b5 get a hue; everything else is a neutral ramp.
+
+    Size encodes scale membership and brightness agrees with it, so a coloured
+    label always means "this note has a name worth knowing".
+    """
+    from bassify.render.labels import _BLUE, _GOLD, _RAMP, note_color
+
+    E = 4
+    assert note_color(4, E) == _GOLD  # root
+    assert note_color(10, E) == _BLUE  # b5
+    assert note_color(7, E) == _RAMP["big"]  # b3
+    assert note_color(6, E) == _RAMP["mid"]  # 2
+    assert note_color(5, E) == _RAMP["small"]  # b2
+    # Neutral labels (no key detected) never get a hue.
+    assert all(note_color(pc, None) == _RAMP["big"] for pc in range(12))
+
+
+def test_root_label_fits_its_cell(tmp_path: Path):
+    """A 3-glyph root label (letter + accidental + octave) must fit one semitone
+    cell, or it collides with the next gridline and clips at the frame edge.
+
+    This is why the accidental and octave digit are drawn at _ACC_SIZE: the font
+    is monospace, so using U+266F instead of '#' saves no width on its own.
+    """
+    from bassify.render.labels import _ACC_SIZE, _SHARP, _SIZE, _font
+
+    cell = W / (12 * math.log2(END * FRAME_PAD / (BASE / FRAME_PAD)))
+    for tier in _SIZE:
+        letter = _font(None, _SIZE[tier]).getlength("C")
+        acc = _font(None, _ACC_SIZE[tier]).getlength(_SHARP)
+        octave = _font(None, _ACC_SIZE[tier]).getlength("2")
+        assert letter + acc + octave < cell, f"{tier} root label overflows its cell"

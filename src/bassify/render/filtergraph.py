@@ -7,6 +7,13 @@ from bassify.render.presets import RenderPreset
 
 WAVE_STRIP_H = 80  # fixed waveform strip height; CQT takes the rest of preset.height
 
+# showcqt's cscheme is left_r|left_g|left_b|right_r|right_g|right_b — hue encodes
+# stereo position. Our input is mono (bass_clean.wav is L minus a filtered R), so
+# the default 1|0.5|0|0|0.5|1 always sums orange+blue to white. Both halves are
+# set to the same green here, giving a single hue whose brightness tracks
+# amplitude, rather than the garish white.
+CSCHEME = "0.08|0.38|0.13|0.08|0.38|0.13"
+
 # Sentinel the orchestrator replaces with the resolved font path (keeps this
 # module font/filesystem-agnostic and purely string-building).
 FONT_SENTINEL = "__BASSIFY_FONT__"
@@ -69,7 +76,8 @@ def build_full_args(
     parts = [
         f"[0:a]showcqt=s={w}x{cqt_h}:fps={preset.fps}:count={preset.count}:"
         f"basefreq={pad_lo:g}:endfreq={pad_hi:g}:"
-        f"bar_g=2:sono_g=3:bar_v=30:sono_v=30:tc=0.17{axis},format=yuv420p[cqt]"
+        f"bar_g=2:sono_g=3:bar_v=30:sono_v=30:tc=0.17:cscheme={CSCHEME}{axis},"
+        "format=yuv420p[cqt]"
     ]
     inputs = ["-i", str(bass_wav), "-i", str(bass_only)]
     next_idx = 2
