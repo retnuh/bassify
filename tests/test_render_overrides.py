@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from bassify.render.overrides import get_override, load_overrides
+from bassify.render.overrides import get_override, load_description_template, load_overrides
 
 
 def _write(dirp: Path, name: str, text: str) -> None:
@@ -46,3 +46,27 @@ def test_overrides_non_dict_is_empty(tmp_path: Path):
 def test_track_entry_non_dict_is_empty(tmp_path: Path):
     _write(tmp_path, "Entry.yaml", 'overrides:\n  "01_a": just-a-string')
     assert get_override("Entry", "01_a", data_dir=tmp_path) == {}
+
+
+def test_load_description_template_present(tmp_path: Path):
+    _write(tmp_path, "C.yaml", "description_template: 'Hello $name'\n")
+    assert load_description_template("C", data_dir=tmp_path) == "Hello $name"
+
+
+def test_load_description_template_missing_file_is_none(tmp_path: Path):
+    assert load_description_template("Nope", data_dir=tmp_path) is None
+
+
+def test_load_description_template_absent_key_is_none(tmp_path: Path):
+    _write(tmp_path, "C.yaml", 'overrides:\n  "01_a": {key: G}\n')
+    assert load_description_template("C", data_dir=tmp_path) is None
+
+
+def test_load_description_template_non_string_is_none(tmp_path: Path):
+    _write(tmp_path, "C.yaml", "description_template:\n  - 1\n  - 2\n")
+    assert load_description_template("C", data_dir=tmp_path) is None
+
+
+def test_load_description_template_malformed_yaml_is_none(tmp_path: Path):
+    _write(tmp_path, "Bad.yaml", ": [invalid")
+    assert load_description_template("Bad", data_dir=tmp_path) is None

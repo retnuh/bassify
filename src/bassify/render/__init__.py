@@ -7,11 +7,12 @@ from dataclasses import replace
 from pathlib import Path
 
 from bassify.ffmpeg import ffprobe_duration, run_ffmpeg, should_skip
+from bassify.render.description import DEFAULT_TEMPLATE, render_description
 from bassify.render.filtergraph import FONT_SENTINEL, build_full_args, build_still_args
 from bassify.render.key import resolve_key
 from bassify.render.labels import build_axis_strip
-from bassify.render.metadata import parse_track_meta
-from bassify.render.overrides import get_override
+from bassify.render.metadata import TrackMeta, parse_track_meta
+from bassify.render.overrides import get_override, load_description_template
 from bassify.render.presets import PRESETS, apply_overrides
 from bassify.render.tempo import detect_bpm
 from bassify.render.thumbnail import build_thumbnail
@@ -90,7 +91,52 @@ def _out_paths(bass_only_m4a: Path) -> dict[str, Path]:
         "wave": p("wave", "png"),
         "cover": p("cover", "jpg"),
         "windows": p("silence_windows", "json"),
+        "description": p("youtube_description", "txt"),
     }
+
+
+def _write_description(
+    out_description: Path,
+    meta: TrackMeta,
+    root_pc: int | None,
+    override: dict,
+    collection: str,
+) -> Path:
+    """Render the collection's description_template (or the built-in default)
+    against already-resolved track data and write the sidecar. Takes resolved
+    meta/root_pc/override rather than re-detecting them, since callers that
+    already computed these for the video/thumbnail (BPM detection in
+    particular isn't free) shouldn't pay that cost twice."""
+    template = load_description_template(collection) or DEFAULT_TEMPLATE
+    videos = override.get("videos") or []
+    text = render_description(template, meta, root_pc, videos)
+    out_description.write_text(text)
+    return out_description
+
+
+def generate_description(bass_only_m4a: Path, key: str | None = None) -> Path:
+    """Standalone: (re)write just the <track>_youtube_description.txt sidecar,
+    without touching the video or thumbnail. For iterating on a collection's
+    description_template or a track's videos: override without paying for a
+    full re-render each time."""
+    bass_only_m4a = Path(bass_only_m4a)
+    bass_wav = resolve_render_inputs(bass_only_m4a)
+    out = _out_paths(bass_only_m4a)
+
+    tags = _read_tags(bass_only_m4a)
+    meta = parse_track_meta(bass_only_m4a, tags)
+
+    collection = bass_only_m4a.parent.parent.name
+    source_stem = _source_stem(bass_only_m4a)
+    override = get_override(collection, source_stem)
+
+    original_path = next((Path("tracks") / collection).glob(f"{source_stem}.*"), None)
+    bpm = detect_bpm(original_path, out["windows"]) if original_path is not None else None
+    meta = replace(meta, bpm=bpm)
+
+    root_pc = resolve_key(key, override, bass_wav)
+
+    return _write_description(out["description"], meta, root_pc, override, collection)
 
 
 def render_track(
@@ -215,6 +261,11 @@ def render_track(
         title_file.unlink(missing_ok=True)
         if axis_safe is not None:
             axis_safe.unlink(missing_ok=True)
+
+    # Only after a successful render -- a failed encode shouldn't leave a
+    # description sidecar for a video that doesn't exist. Reuses meta/root_pc/
+    # override already resolved above; no repeat BPM detection.
+    _write_description(out["description"], meta, root_pc, override, collection)
     return out["render"]
 
 
@@ -244,3 +295,20 @@ def render_batch(directory: Path, **kwargs) -> None:
         f"render batch done: {rendered} rendered, {skipped} skipped (no bass_clean.wav), "
         f"{failed} failed"
     )
+
+
+def generate_description_batch(directory: Path, key: str | None = None) -> None:
+    """Regenerate the description sidecar for every *_bass_only*.m4a under
+    directory. Cheap relative to render_batch -- no ffmpeg video encode, but
+    BPM detection still runs, so it's "fast" not "instant"."""
+    directory = Path(directory)
+    m4as = sorted(directory.rglob("*_bass_only*.m4a"))
+    ok = failed = 0
+    for m in m4as:
+        try:
+            generate_description(m, key=key)
+            ok += 1
+        except Exception as exc:  # noqa: BLE001
+            print(f"  ERROR describing {m.name}: {exc}")
+            failed += 1
+    print(f"describe batch done: {ok} ok, {failed} failed")

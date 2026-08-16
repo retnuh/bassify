@@ -14,6 +14,35 @@
 #
 # These entries were taken from the course book (Aug 2026) to correct
 # auto-detection misses.
+#
+#   videos: [{title, url}] -- up to a few real YouTube links to the ORIGINAL
+#        recording(s) this track's exercise is based on (found by research,
+#        Aug 2026; every URL below is a real search result, not guessed).
+#        Rendered into the track's _youtube_description.txt sidecar (see
+#        description_template below) by `bassify describe`. Only present on
+#        tracks named after an actual blues standard -- the generic teaching
+#        exercises (Box Shape Examples, Boogie Line, etc.) have nothing to
+#        link to and are omitted.
+
+# Collection-level blurb template for _youtube_description.txt (stdlib
+# string.Template -- $identifiers only, no expressions/conditionals). Optional
+# fields ($key_line, $bpm_line, $videos_block) are pre-formatted into whole
+# lines/blocks and come through as "" when the data is missing, not as a bare
+# $placeholder -- see render/description.py. Falls back to description.py's
+# own DEFAULT_TEMPLATE if this key is absent.
+description_template: |
+  $title_line
+
+  Bass-only practice track from Hal Leonard's "Blues Bass: A Guide to the
+  Essential Styles and Techniques" by Ed Friedland -- isolated bass line,
+  with the original count-in and narration left intact so it's still
+  practice-along ready.
+  $key_line$bpm_line
+  Book: $book_url
+  $videos_block
+  Generated with bassify: $project_url
+
+  #bassguitar #basscover #bluesbass #basslesson
 
 overrides:
   # Auto-detected A min, but the title says F and it is in F. Root F.
@@ -33,10 +62,20 @@ overrides:
   # 5th). Root B.
   "40_The Thrill Is Gone":
     key: Bm
+    videos:
+      - title: "B.B. King - The Thrill Is Gone (1969)"
+        url: "https://www.youtube.com/watch?v=oica5jG7FpU"
+      - title: "B.B. King - The Thrill Is Gone (from Completely Well)"
+        url: "https://www.youtube.com/watch?v=kpC69qIe02E"
 
   # F# minor (part of it touches F# major; we use F# minor). Root F#.
   "41_All Your Love":
     key: F#m
+    videos:
+      - title: "Otis Rush - All Your Love (I Miss Loving) [Cobra 5032, 1958]"
+        url: "https://www.youtube.com/watch?v=eAFPgAxZGJ0"
+      - title: "Otis Rush - All Your Love (I Miss Loving)"
+        url: "https://www.youtube.com/watch?v=O3hrVFvxTfk"
 
   # Teaching track cycling intros through multiple keys (A -> G -> C -> F# -> C).
   # No single key applies -> keyless -> neutral labels.
@@ -46,3 +85,176 @@ overrides:
   # Teaching track cycling intros through multiple keys. Keyless -> neutral labels.
   "27_Intros From The Four":
     key: null
+
+  # --- Original recordings, researched Aug 2026 (see the description_template
+  # comment above for how these render). No key override here -- only videos.
+
+  # Original Albert King instrumental (1962 B-side to "Travelin' To California"),
+  # not a cover.
+  "06_Dyna Flow":
+    videos:
+      - title: "Albert King - Dyna Flow (1962)"
+        url: "https://www.youtube.com/watch?v=NBQ4HGsCEW4"
+      - title: "Albert King - Dyna flow"
+        url: "https://www.youtube.com/watch?v=VeLG58EW4gY"
+
+  # Junior Wells, 1960, Chief Records, written by Mel London. Same song as
+  # track 10 (register variants of the same exercise) -- same videos.
+  "09_Messin' With The Kid Higher Register":
+    videos:
+      - title: "Junior Wells - Messin' With The Kid"
+        url: "https://www.youtube.com/watch?v=X-9_hsLhX0w"
+      - title: "Junior Wells - Messin' With The Kid"
+        url: "https://www.youtube.com/watch?v=cWTieCjUhVw"
+
+  "10_Messin' With The Kid Lower Register":
+    videos:
+      - title: "Junior Wells - Messin' With The Kid"
+        url: "https://www.youtube.com/watch?v=X-9_hsLhX0w"
+      - title: "Junior Wells - Messin' With The Kid"
+        url: "https://www.youtube.com/watch?v=cWTieCjUhVw"
+
+  # Jimmy Reed, 1960/61, Vee-Jay.
+  "17_Big Boss Man":
+    videos:
+      - title: "Jimmy Reed - Big Boss Man (Original 1961 Chicago Blues Recording)"
+        url: "https://www.youtube.com/watch?v=XklUL-3v9Dc"
+      - title: "Jimmy Reed - Big Boss Man (Official Audio)"
+        url: "https://www.youtube.com/watch?v=JhTGqS2Pbsw"
+
+  # Eddie "Cleanhead" Vinson, "Kidney Stew Blues", 1947.
+  "18_Kidney Stew":
+    videos:
+      - title: "Eddie \"Cleanhead\" Vinson & His Orchestra - Kidney Stew Blues (1947)"
+        url: "https://www.youtube.com/watch?v=Tw2IMWa7aQE"
+      - title: "Eddie Cleanhead Vinson - Kidney Stew Blues"
+        url: "https://www.youtube.com/watch?v=0JA8TMapna8"
+
+  # T-Bone Walker, "Call It Stormy Monday", 1947, Black & White label.
+  "22_Stormy Monday":
+    videos:
+      - title: "T-Bone Walker - Call It Stormy Monday"
+        url: "https://www.youtube.com/watch?v=xQEEWC4ZxYQ"
+      - title: "T-Bone Walker - Call It Stormy Monday (1947)"
+        url: "https://www.youtube.com/watch?v=ZfMguEHoKP4"
+
+  # Pee Wee Crayton, NOT Elmore James -- written by Crayton & Jules Taub, first
+  # recorded/released by Crayton in 1948 (#1 Billboard Race Records). Elmore
+  # James also cut a version, but Crayton is the original artist/co-composer.
+  "23_Blues After Hours":
+    videos:
+      - title: "Pee Wee Crayton - Blues After Hours"
+        url: "https://www.youtube.com/watch?v=kHwHZOgKKvw"
+      - title: "Blues After Hours - Pee Wee Crayton (RPM Records)"
+        url: "https://www.youtube.com/watch?v=wMGkLflNJlg"
+
+  # Professor Longhair, 1949.
+  "24_Mardi Gras In New Orleans":
+    videos:
+      - title: "Professor Longhair - Mardi Gras in New Orleans (1949)"
+        url: "https://www.youtube.com/watch?v=j8q6gxgG-9Q"
+      - title: "Professor Longhair - Mardi Gras in New Orleans"
+        url: "https://www.youtube.com/watch?v=LR82f0GJgXg"
+
+  # Two prominent originals: Tommy McClennan's 1941 "Cross Cut Saw Blues" is
+  # the true original; Albert King's 1966 Stax reworking (Latin/Afro-Cuban
+  # beat, Booker T & the MGs) is the version most bass players reference.
+  "25_Crosscut Saw":
+    videos:
+      - title: "Albert King - Crosscut Saw (Official Audio)"
+        url: "https://www.youtube.com/watch?v=Fb3EMo6Hlnk"
+      - title: "Albert King - Crosscut Saw"
+        url: "https://www.youtube.com/watch?v=wUBMJk3syzI"
+      - title: "Tommy McClennan - Cross Cut Saw Blues (1941, true original)"
+        url: "https://www.youtube.com/watch?v=8DMzJuYCzm4"
+
+  # Little Walter, 1955, Checker/Chess, written by Willie Dixon.
+  "30_My Babe":
+    videos:
+      - title: "Little Walter - My Babe (1955, #1 R&B hit for 5 weeks)"
+        url: "https://www.youtube.com/watch?v=psWlV07ng2w"
+      - title: "Little Walter - My Babe [1955]"
+        url: "https://www.youtube.com/watch?v=MkYzb4Jzx8k"
+
+  # Two prominent versions: Big Bill Broonzy co-wrote and recorded the
+  # original (1941, with Jazz Gillum); Derek and the Dominos' 1970 "Layla"
+  # version (Clapton/Duane Allman) is the other extremely famous rendition.
+  "31_Key To The Highway":
+    videos:
+      - title: "Big Bill Broonzy - Key to the Highway (original, 1941)"
+        url: "https://www.youtube.com/watch?v=KN_f0WVsHuw"
+      - title: "Derek and the Dominos - Key to the Highway (Layla and Other Assorted Love Songs)"
+        url: "https://www.youtube.com/watch?v=f3dW5F6GKTs"
+
+  # Smiley Lewis, 1955, Imperial, recorded at J&M Studio New Orleans.
+  "32_I Hear You Knocking":
+    videos:
+      - title: "Smiley Lewis - I Hear You Knocking (1955, 1st recording)"
+        url: "https://www.youtube.com/watch?v=F3-2nOlO528"
+      - title: "Smiley Lewis - I Hear You Knockin'"
+        url: "https://www.youtube.com/watch?v=DIeY7J9kjg0"
+
+  # Freddie King, recorded Aug 1960 King Records, released 1961 as "Hide Away".
+  "34_Hideaway":
+    videos:
+      - title: "Freddie King - Hide Away (1961)"
+        url: "https://www.youtube.com/watch?v=-6JOEx44ZvI"
+      - title: "Freddie King - Hide Away (King Of The Blues)"
+        url: "https://www.youtube.com/watch?v=sQWeXuyRnDo"
+
+  # Freddie King, 1961.
+  "35_I'm Tore Down":
+    videos:
+      - title: "Freddie King - I'm Tore Down"
+        url: "https://www.youtube.com/watch?v=eTTNBFjLn5g"
+      - title: "I'm Tore Down - Freddie King"
+        url: "https://www.youtube.com/watch?v=BrLJscDcyQ8"
+
+  # Albert King, 1967, Stax, written by Booker T. Jones & William Bell.
+  "36_Born Under A Bad Sign":
+    videos:
+      - title: "Albert King - Born Under A Bad Sign"
+        url: "https://www.youtube.com/watch?v=2Py37G9qsfY"
+      - title: "Albert King - Born Under A Bad Sign (Official Audio)"
+        url: "https://www.youtube.com/watch?v=790ggx1NM5Q"
+
+  # Howlin' Wolf, 1964, Chess, Hubert Sumlin on guitar.
+  "37_Killing Floor":
+    videos:
+      - title: "Howlin' Wolf - Killing Floor (1964 Single)"
+        url: "https://www.youtube.com/watch?v=3C4PsXoFslM"
+      - title: "Howlin' Wolf - Killing Floor"
+        url: "https://www.youtube.com/watch?v=EGIE28q3fEA"
+
+  # Stevie Ray Vaughan & Double Trouble, 1983, "Texas Flood".
+  "38_Pride And Joy":
+    videos:
+      - title: "Stevie Ray Vaughan & Double Trouble - Pride and Joy (Official Audio)"
+        url: "https://www.youtube.com/watch?v=I3MTGhRC82s"
+      - title: "Stevie Ray Vaughan - Pride and Joy (Studio version)"
+        url: "https://www.youtube.com/watch?v=0vo23H9J8o8"
+
+  # Muddy Waters, 1954, Chess, written by Willie Dixon.
+  "39_Hoochie Coochie Man":
+    videos:
+      - title: "Muddy Waters - Hoochie Coochie Man (Chess LP)"
+        url: "https://www.youtube.com/watch?v=SH61Npe8dq8"
+      - title: "Muddy Waters - Hoochie Coochie Man (Chess 1954)"
+        url: "https://www.youtube.com/watch?v=AFxrLOVwsEE"
+
+  # Bobby "Blue" Bland, 1957, Duke Records.
+  "42_Farther Up The Road":
+    videos:
+      - title: "Bobby \"Blue\" Bland - Farther Up The Road (1957, #1 R&B hit)"
+        url: "https://www.youtube.com/watch?v=oFdw9Y0TF_c"
+      - title: "Bobby Bland - Farther Up The Road (Original 45rpm Duke 1957)"
+        url: "https://www.youtube.com/watch?v=4nYvoq60f9A"
+
+  # Robert Johnson's original (recorded Nov 23 1936, released 1937) plus The
+  # Blues Brothers' famous 1980 film/soundtrack cover.
+  "43_Sweet Home Chicago":
+    videos:
+      - title: "Robert Johnson - Sweet Home Chicago (1936)"
+        url: "https://www.youtube.com/watch?v=Ug0ZRSbmCRM"
+      - title: "The Blues Brothers - Sweet Home Chicago (Official Audio)"
+        url: "https://www.youtube.com/watch?v=euJ22UqLD5Y"

@@ -12,7 +12,12 @@ from bassify import extract as extract_mod
 from bassify import metrics as metrics_mod
 from bassify import remix as remix_mod
 from bassify.pipeline import extract_batch, run_batch, run_pipeline
-from bassify.render import render_batch, render_track
+from bassify.render import (
+    generate_description,
+    generate_description_batch,
+    render_batch,
+    render_track,
+)
 from bassify.slice import SliceSpec
 
 DurationOpt = Annotated[
@@ -326,6 +331,28 @@ def render(
         print("note: full-length render can take minutes (CQT is ~0.5-2x realtime).")
         print("tip: add --duration 30 to preview a slice first.")
     render_track(input_path, **kwargs)
+
+
+@app.command()
+def describe(
+    input_path: Path,
+    key: Annotated[
+        str | None,
+        typer.Option("--key", help="Force key for the description's Key: line."),
+    ] = None,
+) -> None:
+    """(Re)write just the <track>_youtube_description.txt sidecar.
+
+    Pass a single bass_only.m4a, or a directory to batch every bass_only.m4a
+    under it. No video encode -- much cheaper than `render`, meant for
+    iterating on a collection's description_template or a track's `videos`
+    override in data/<collection>.yaml without re-rendering the video.
+    """
+    if input_path.is_dir():
+        generate_description_batch(input_path, key=key)
+        return
+    out = generate_description(input_path, key=key)
+    print(f"wrote {out}")
 
 
 @app.command(name="measure-bleed")

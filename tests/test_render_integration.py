@@ -9,7 +9,7 @@ import pytest
 
 from bassify.paths import resolve_paths
 from bassify.pipeline import run_pipeline
-from bassify.render import render_track, resolve_render_inputs
+from bassify.render import generate_description, render_track, resolve_render_inputs
 from bassify.render.key import detect_key
 from bassify.slice import SliceSpec
 
@@ -96,8 +96,15 @@ def test_render_still_and_final(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     bass_only = resolve_paths(src, slice_spec=spec).bass_only_m4a
     assert bass_only.exists()
 
+    from bassify.render import _out_paths
+
+    description = _out_paths(bass_only)["description"]
+
     still = render_track(bass_only, "still", force=True)
     assert still.exists() and "audio" in _probe(still, "stream=codec_type")
+    # "still" returns before root_pc/key are even resolved (see render_track) --
+    # no description sidecar from this path.
+    assert not description.exists()
 
     out = render_track(bass_only, "final", force=True)
     assert out.exists()
@@ -113,6 +120,11 @@ def test_render_still_and_final(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     vdur = float(_probe(out, "format=duration").split("=")[1])
     adur = float(_probe(bass_only, "format=duration").split("=")[1])
     assert abs(vdur - adur) < 0.5
+
+    # written only by the "final" pass above; "still" was checked not to
+    # produce it, above.
+    assert description.exists()
+    assert "Test Track" in description.read_text()
 
 
 @pytest.mark.skipif(ffmpeg_missing, reason=skip_reason)
@@ -163,6 +175,51 @@ def test_render_track_finds_original_and_detects_bpm(
 
     thumb = out.with_name(out.name.replace("_render", "_thumbnail").replace(".mp4", ".png"))
     assert thumb.exists() and Image.open(thumb).size == (1280, 720)
+
+
+@pytest.mark.skipif(ffmpeg_missing, reason=skip_reason)
+def test_generate_description_uses_collection_template_and_track_videos(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """generate_description must find data/<collection>.yaml's
+    description_template and the track's own `videos` override, and render
+    them into the sidecar -- without touching the video/thumbnail at all
+    (that's the whole point of it being a separate, cheap entry point)."""
+    monkeypatch.chdir(tmp_path)
+    src = tmp_path / "tracks" / "Coll" / "01_Test.wav"
+    _make_tagged_source(src)
+
+    spec = SliceSpec(duration=3)
+    run_pipeline(src, slice_spec=spec, force=True)
+    bass_only = resolve_paths(src, slice_spec=spec).bass_only_m4a
+    assert bass_only.exists()
+
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "Coll.yaml").write_text(
+        "description_template: |\n"
+        "  $title_line -- custom blurb\n"
+        "  ${bpm_line}$videos_block\n"
+        "overrides:\n"
+        '  "01_Test":\n'
+        "    videos:\n"
+        "      - title: Original Recording\n"
+        "        url: https://youtube.com/watch?v=abc123\n"
+    )
+
+    out = generate_description(bass_only)
+    assert out.exists()
+    text = out.read_text()
+
+    assert "custom blurb" in text  # from the yaml template, not DEFAULT_TEMPLATE
+    assert "Test Track" in text  # $title_line still resolved from tags
+    assert "https://youtube.com/watch?v=abc123" in text
+    assert "Original Recording" in text
+
+    render_output = out.with_name(
+        out.name.replace("_youtube_description", "_render").replace(".txt", ".mp4")
+    )
+    assert not render_output.exists()  # no video encode from this entry point
 
 
 @pytest.mark.skipif(ffmpeg_missing, reason=skip_reason)

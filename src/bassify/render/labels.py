@@ -50,6 +50,11 @@ _RAMP = {
 _OUTLINE = (0, 0, 0, 255)
 
 
+def note_name(pitch_class: int) -> str:
+    """Sharp-spelled note name for a pitch class 0-11 (0=C)."""
+    return _NAMES[pitch_class]
+
+
 def note_x(freq: float, basefreq: float, endfreq: float, width: int) -> float:
     """Screen-x of a frequency in a log2 CQT axis. Matches showcqt's mapping."""
     return width * math.log2(freq / basefreq) / math.log2(endfreq / basefreq)
