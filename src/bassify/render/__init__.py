@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import subprocess
 import tempfile
+from dataclasses import replace
 from pathlib import Path
 
 from bassify.ffmpeg import ffprobe_duration, run_ffmpeg, should_skip
@@ -12,6 +13,7 @@ from bassify.render.labels import build_axis_strip
 from bassify.render.metadata import parse_track_meta
 from bassify.render.overrides import get_override
 from bassify.render.presets import PRESETS, apply_overrides
+from bassify.render.tempo import detect_bpm
 from bassify.render.thumbnail import build_thumbnail
 from bassify.render.waveform import render_waveform_pic
 
@@ -87,6 +89,7 @@ def _out_paths(bass_only_m4a: Path) -> dict[str, Path]:
         "axis": p("axis", "png"),
         "wave": p("wave", "png"),
         "cover": p("cover", "jpg"),
+        "windows": p("silence_windows", "json"),
     }
 
 
@@ -128,6 +131,22 @@ def render_track(
     tags = _read_tags(bass_only_m4a)
     meta = parse_track_meta(bass_only_m4a, tags)
 
+    # collection/source_stem: needed for the key override lookup below, and here
+    # for finding the original source track BPM is detected from -- resolved
+    # once, ahead of the thumbnail, since the thumbnail carries BPM too.
+    collection = bass_only_m4a.parent.parent.name
+    source_stem = _source_stem(bass_only_m4a)
+    override = get_override(collection, source_stem)
+
+    # BPM comes from the ORIGINAL track (drums present), not the isolated bass:
+    # bass-only audio starves beat_track's onset detection. tracks/<collection>
+    # is the CLI's own input convention (see `bassify run tracks/X`), the same
+    # one metrics.py's original-track lookup relies on; a differently-organised
+    # input just means no original is found and bpm stays None.
+    original_path = next((Path("tracks") / collection).glob(f"{source_stem}.*"), None)
+    bpm = detect_bpm(original_path, out["windows"]) if original_path is not None else None
+    meta = replace(meta, bpm=bpm)
+
     # Cover art: needed for thumbnail (always) + logo/still. Synthesize if absent.
     if not _extract_cover(bass_only_m4a, out["cover"]):
         from PIL import Image
@@ -143,9 +162,7 @@ def render_track(
         )
         return out["still"]
 
-    # Resolve key (collection = grandparent dir name), then label tiers.
-    collection = bass_only_m4a.parent.parent.name
-    override = get_override(collection, _source_stem(bass_only_m4a))
+    # Resolve key, then label tiers.
     root_pc = resolve_key(key, override, bass_wav)
 
     axis_png = None
@@ -163,8 +180,11 @@ def render_track(
     )
 
     duration = ffprobe_duration(bass_only_m4a)
+    title_parts = [x for x in (meta.number, meta.name) if x]
+    if meta.bpm is not None:
+        title_parts.append(f"{round(meta.bpm)} BPM")
     with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as tf:
-        tf.write(" ".join(x for x in (meta.number, meta.name) if x))
+        tf.write(" ".join(title_parts))
         title_file = Path(tf.name)
 
     # showcqt's axisfile= lives inside the -filter_complex string, where ffmpeg's

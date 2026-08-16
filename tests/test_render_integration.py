@@ -116,6 +116,56 @@ def test_render_still_and_final(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
 
 
 @pytest.mark.skipif(ffmpeg_missing, reason=skip_reason)
+def test_render_track_finds_original_and_detects_bpm(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When the source lives at tracks/<collection>/<stem>.* (the CLI's own
+    layout -- see `bassify run tracks/X`), render_track must locate it and
+    pass it to detect_bpm along with the real windows.json, and the result
+    must reach the thumbnail without error.
+
+    Spies on detect_bpm rather than asserting a real tempo: the input here is
+    sine+noise, not music, so a musically meaningful BPM isn't the point --
+    tempo.py's own unit tests already cover detection accuracy on a real
+    rhythmic signal. This test is about the wiring: does render_track find
+    the original and hand it the right arguments.
+    """
+    monkeypatch.chdir(tmp_path)
+    src = tmp_path / "tracks" / "Coll" / "01_Test.wav"
+    _make_tagged_source(src)
+
+    spec = SliceSpec(duration=3)
+    run_pipeline(src, slice_spec=spec, force=True)
+    bass_only = resolve_paths(src, slice_spec=spec).bass_only_m4a
+    windows_json = resolve_paths(src, slice_spec=spec).windows
+    assert bass_only.exists() and windows_json.exists()
+
+    calls = []
+
+    def fake_detect_bpm(original_path, windows_path=None):
+        calls.append((Path(original_path), Path(windows_path) if windows_path else None))
+        return 91.0
+
+    monkeypatch.setattr("bassify.render.detect_bpm", fake_detect_bpm)
+
+    out = render_track(bass_only, "final", force=True)
+    assert out.exists()
+
+    assert len(calls) == 1
+    original_path, windows_path = calls[0]
+    # original_path comes back from a glob() on a relative "tracks/..." base
+    # (relative to cwd, chdir'd to tmp_path above), so resolve both sides
+    # before comparing -- the assertion is about identity, not string form.
+    assert original_path.resolve() == src.resolve()
+    assert windows_path.resolve() == windows_json.resolve()
+
+    from PIL import Image
+
+    thumb = out.with_name(out.name.replace("_render", "_thumbnail").replace(".mp4", ".png"))
+    assert thumb.exists() and Image.open(thumb).size == (1280, 720)
+
+
+@pytest.mark.skipif(ffmpeg_missing, reason=skip_reason)
 def test_detect_key_returns_pitch_class(tmp_path: Path) -> None:
     src = tmp_path / "e2.wav"
     subprocess.run(

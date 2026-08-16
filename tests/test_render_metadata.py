@@ -47,3 +47,16 @@ def test_display_lines_omits_none():
         "Ed Friedland",
     ]
     assert TrackMeta(None, "Foo", None).display_lines() == ["Foo"]
+
+
+def test_display_lines_appends_rounded_bpm():
+    assert TrackMeta("03", "Turnarounds", "Ed Friedland", bpm=117.45).display_lines() == [
+        "03",
+        "Turnarounds",
+        "Ed Friedland",
+        "117 BPM",
+    ]
+
+
+def test_bpm_defaults_to_none():
+    assert parse_track_meta(Path("01_Foo_bass_only.m4a"), {}).bpm is None

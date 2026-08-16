@@ -24,9 +24,13 @@ class TrackMeta:
     number: str | None
     name: str | None
     artist: str | None
+    bpm: float | None = None
 
     def display_lines(self) -> list[str]:
-        return [v for v in (self.number, self.name, self.artist) if v]
+        lines = [v for v in (self.number, self.name, self.artist) if v]
+        if self.bpm is not None:
+            lines.append(f"{round(self.bpm)} BPM")
+        return lines
 
 
 def parse_track_meta(m4a_path: Path, tags: dict[str, str]) -> TrackMeta:

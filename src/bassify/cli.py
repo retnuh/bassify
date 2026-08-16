@@ -210,12 +210,28 @@ def run(
     duration: DurationOpt = None,
     start: StartOpt = None,
     force: Annotated[bool, typer.Option("--force", help="Overwrite existing output.")] = False,
+    render: Annotated[
+        bool,
+        typer.Option(
+            "--render",
+            help="Also render the video (+thumbnail) right after each track's audio is "
+            "ready -- interleaved per track, not a separate pass at the end.",
+        ),
+    ] = False,
+    render_preset: Annotated[
+        str, typer.Option("--render-preset", help="draft | final | still (with --render).")
+    ] = "final",
 ) -> None:
     """Run the full pipeline: extract -> detect -> combine -> remix -> encode.
 
     Pass a single audio file to process one track, or a directory to process all
     audio files in it (non-recursive, sorted, per-track error handling).
+
+    --render additionally renders each track's video (see 'render' for the full
+    flag surface -- res/fps/crf/etc. -- if the default preset isn't enough).
     """
+    if render and render_preset not in ("draft", "final", "still"):
+        raise typer.BadParameter("render-preset must be draft, final, or still")
     spec = SliceSpec(duration=duration, start=start)
     effective_lowpass = None if no_lowpass else lowpass
     if input_path.is_dir():
@@ -226,6 +242,8 @@ def run(
             min_gap=min_gap,
             slice_spec=spec,
             force=force,
+            render=render,
+            render_preset=render_preset,
         )
     else:
         run_pipeline(
@@ -235,6 +253,8 @@ def run(
             min_gap=min_gap,
             slice_spec=spec,
             force=force,
+            render=render,
+            render_preset=render_preset,
         )
 
 

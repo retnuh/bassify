@@ -8,6 +8,7 @@ from bassify.encode import encode_track
 from bassify.extract import DEFAULT_LOWPASS, extract_bass
 from bassify.paths import resolve_paths
 from bassify.remix import remix_track
+from bassify.render import render_track
 from bassify.slice import SliceSpec
 
 
@@ -18,13 +19,20 @@ def run_pipeline(
     min_gap: float = 1.0,
     slice_spec: SliceSpec | None = None,
     force: bool = False,
+    render: bool = False,
+    render_preset: str = "final",
 ) -> None:
-    """extract -> detect -> combine -> remix -> encode x2.
+    """extract -> detect -> combine -> remix -> encode x2, optionally + render.
 
     The ffmpeg time-cut is applied at extract (producing a pre-sliced bass WAV).
     Downstream stages (detect/combine/remix) reconcile the effective slice from
     filename tokens, so they correctly apply the slice to the full original without
     re-cutting the already-sliced bass intermediate.
+
+    render=True renders the video (and thumbnail) immediately after, from the
+    bass_only.m4a this call just produced -- the common case of "process this
+    track end to end" in one pass, instead of a separate `bassify render` run
+    over the same output afterward.
     """
     input_path = Path(input_path)
     paths = resolve_paths(input_path, slice_spec=slice_spec)
@@ -67,6 +75,8 @@ def run_pipeline(
         bass_only, input_path, output=paths.bass_only_m4a, force=force, title_suffix="(Bass Only)"
     )
     encode_track(remixed, input_path, output=paths.remix_m4a, force=force)
+    if render:
+        render_track(paths.bass_only_m4a, preset_name=render_preset, force=force)
     print(f"done: {paths.track_dir}")
 
 
@@ -121,12 +131,19 @@ def run_batch(
     min_gap: float = 1.0,
     slice_spec: SliceSpec | None = None,
     force: bool = False,
+    render: bool = False,
+    render_preset: str = "final",
 ) -> None:
     """Process every source audio track directly in input_dir (non-recursive).
 
     Source extensions: .mp3, .m4a, .flac, .wav, .aac, .ogg.
     Outputs go to out/<collection>/<track>/ so there is no self-collision with the input dir.
     Tracks are processed in sorted order; a failure on one track is printed and skipped.
+
+    render=True renders each track's video immediately after its audio is
+    ready, interleaved within this same per-track loop -- not as a separate
+    pass over the whole directory afterward. A render failure counts as that
+    track's failure, same as any pipeline-stage failure.
     """
     input_dir = Path(input_dir)
     tracks = _collect_tracks(input_dir)
@@ -148,6 +165,8 @@ def run_batch(
                 min_gap=min_gap,
                 slice_spec=slice_spec,
                 force=force,
+                render=render,
+                render_preset=render_preset,
             )
             ok += 1
         except Exception as exc:  # noqa: BLE001

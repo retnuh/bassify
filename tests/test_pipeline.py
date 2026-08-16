@@ -244,6 +244,62 @@ def test_run_pipeline_passes_lowpass_through(monkeypatch, tmp_path):
     assert received["lowpass"] == 500.0
 
 
+def test_run_pipeline_render_false_never_calls_render_track(monkeypatch, tmp_path):
+    """Default render=False must not touch render_track at all -- covers every
+    existing caller of run_pipeline that doesn't know this parameter exists."""
+    input_mp3 = tmp_path / "tracks" / "Band" / "06_Song.mp3"
+    input_mp3.parent.mkdir(parents=True)
+    input_mp3.touch()
+
+    import bassify.pipeline as pipeline_mod
+
+    monkeypatch.setattr(pipeline_mod, "extract_bass", lambda *a, **k: Path("bass.wav"))
+    monkeypatch.setattr(pipeline_mod, "detect_windows", lambda *a, **k: Path("windows.json"))
+    monkeypatch.setattr(pipeline_mod, "combine_track", lambda *a, **k: Path("bass_only.wav"))
+    monkeypatch.setattr(pipeline_mod, "remix_track", lambda *a, **k: Path("remix.wav"))
+    monkeypatch.setattr(pipeline_mod, "encode_track", lambda *a, **k: None)
+
+    render_calls = []
+    monkeypatch.setattr(pipeline_mod, "render_track", lambda *a, **k: render_calls.append((a, k)))
+
+    from bassify.pipeline import run_pipeline
+
+    run_pipeline(input_mp3)
+
+    assert render_calls == []
+
+
+def test_run_pipeline_render_true_renders_the_bass_only_m4a(monkeypatch, tmp_path):
+    """render=True must call render_track on THIS run's bass_only.m4a, with
+    the requested preset and the same force flag as the rest of the pipeline."""
+    input_mp3 = tmp_path / "tracks" / "Band" / "07_Song.mp3"
+    input_mp3.parent.mkdir(parents=True)
+    input_mp3.touch()
+
+    paths = resolve_paths(input_mp3)
+
+    import bassify.pipeline as pipeline_mod
+
+    monkeypatch.setattr(pipeline_mod, "extract_bass", lambda *a, **k: paths.bass)
+    monkeypatch.setattr(pipeline_mod, "detect_windows", lambda *a, **k: paths.windows)
+    monkeypatch.setattr(pipeline_mod, "combine_track", lambda *a, **k: paths.bass_only)
+    monkeypatch.setattr(pipeline_mod, "remix_track", lambda *a, **k: paths.remix)
+    monkeypatch.setattr(pipeline_mod, "encode_track", lambda *a, **k: None)
+
+    render_calls = []
+    monkeypatch.setattr(pipeline_mod, "render_track", lambda *a, **k: render_calls.append((a, k)))
+
+    from bassify.pipeline import run_pipeline
+
+    run_pipeline(input_mp3, render=True, render_preset="draft", force=True)
+
+    assert len(render_calls) == 1
+    (args, kwargs) = render_calls[0]
+    assert args[0] == paths.bass_only_m4a
+    assert kwargs["preset_name"] == "draft"
+    assert kwargs["force"] is True
+
+
 # ---------------------------------------------------------------------------
 # run_batch tests
 # ---------------------------------------------------------------------------
@@ -308,6 +364,56 @@ def test_run_batch_empty_dir_does_not_call_pipeline(monkeypatch, tmp_path):
     run_batch(empty_dir)
 
     assert called == []
+
+
+def test_run_batch_forwards_render_and_render_preset_to_run_pipeline(monkeypatch, tmp_path):
+    """run_batch doesn't render itself -- it must thread render/render_preset
+    through to run_pipeline, which is where the interleaved render actually
+    happens (same per-track try/except covers both stages' failures)."""
+    batch_dir, source_tracks = _make_batch_dir(tmp_path)
+    received = []
+
+    def fake_run_pipeline(input_path, **kwargs):
+        received.append((Path(input_path), kwargs.get("render"), kwargs.get("render_preset")))
+
+    import bassify.pipeline as pipeline_mod
+
+    monkeypatch.setattr(pipeline_mod, "run_pipeline", fake_run_pipeline)
+
+    from bassify.pipeline import run_batch
+
+    run_batch(batch_dir, render=True, render_preset="still")
+
+    assert received == [(t, True, "still") for t in source_tracks]
+
+
+def test_run_batch_render_failure_counts_as_that_tracks_failure(monkeypatch, tmp_path, capsys):
+    """A render_track exception (raised from inside run_pipeline, same as any
+    pipeline-stage exception) must be caught by run_batch's existing per-track
+    handler -- not propagate and abort the remaining tracks."""
+    d = tmp_path / "tracks" / "Band"
+    d.mkdir(parents=True)
+    tracks = [d / f"0{i}_Song.mp3" for i in range(1, 4)]
+    for t in tracks:
+        t.touch()
+
+    attempted = []
+
+    def fake_run_pipeline(input_path, **kwargs):
+        attempted.append(Path(input_path))
+        if Path(input_path) == tracks[1]:
+            raise RuntimeError("simulated render failure")
+
+    import bassify.pipeline as pipeline_mod
+
+    monkeypatch.setattr(pipeline_mod, "run_pipeline", fake_run_pipeline)
+
+    from bassify.pipeline import run_batch
+
+    run_batch(d, render=True)  # must not raise
+
+    assert attempted == sorted(tracks)
+    assert "batch done: 2 ok, 1 failed" in capsys.readouterr().out
 
 
 def test_run_batch_one_failure_does_not_stop_others(monkeypatch, tmp_path):
@@ -400,3 +506,43 @@ def test_cli_run_dispatches_to_run_pipeline_for_file(monkeypatch, tmp_path):
     assert result.exit_code == 0, result.output
     assert pipeline_called_with == [f]
     assert batch_called_with == []
+
+
+def test_cli_run_forwards_render_flags_to_run_pipeline(monkeypatch, tmp_path):
+    from typer.testing import CliRunner
+
+    import bassify.cli as cli_mod
+    from bassify.cli import app
+
+    received = []
+
+    def fake_run_pipeline(input_path, **kwargs):
+        received.append(kwargs)
+
+    monkeypatch.setattr(cli_mod, "run_pipeline", fake_run_pipeline)
+
+    f = tmp_path / "01_Song.mp3"
+    f.touch()
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["run", str(f), "--render", "--render-preset", "draft"])
+
+    assert result.exit_code == 0, result.output
+    assert len(received) == 1
+    assert received[0]["render"] is True
+    assert received[0]["render_preset"] == "draft"
+
+
+def test_cli_run_rejects_invalid_render_preset(tmp_path):
+    from typer.testing import CliRunner
+
+    from bassify.cli import app
+
+    f = tmp_path / "01_Song.mp3"
+    f.touch()
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["run", str(f), "--render", "--render-preset", "bogus"])
+
+    assert result.exit_code != 0
+    assert "render-preset must be draft, final, or still" in result.output

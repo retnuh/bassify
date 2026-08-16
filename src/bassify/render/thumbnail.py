@@ -2,13 +2,32 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 from bassify.render.metadata import TrackMeta
 
 NUMBER_SIZE = 48
 NAME_SIZE = 72
 ARTIST_SIZE = 40
+BPM_SIZE = 36
+
+MIN_SIZE = 20  # never shrink a row below this, however long the text
+TEXT_MARGIN = 40  # keep burned text off the very left/right edges
+
+
+def _fit_font(text: str, size: int, font_path: str, max_width: float) -> ImageFont.FreeTypeFont:
+    """The role size, or smaller if the text would overflow max_width.
+
+    DejaVuSansMono is monospace, so a glyph's width scales linearly with point
+    size -- one measurement at the starting size is enough to compute the
+    exact size that fits, no iterative search needed.
+    """
+    font = ImageFont.truetype(font_path, size)
+    width = font.getlength(text)
+    if width <= max_width:
+        return font
+    fitted = max(MIN_SIZE, int(size * max_width / width))
+    return ImageFont.truetype(font_path, fitted)
 
 
 def build_thumbnail(
@@ -19,9 +38,16 @@ def build_thumbnail(
     width: int = 1280,
     height: int = 720,
 ) -> Path:
-    """Full art + burned track number/name/artist, centered, ~2/3 down."""
+    """Full art + burned track number/name/artist/bpm, centered, ~2/3 down.
+
+    Cover art keeps its own aspect ratio -- scaled to fit inside width x height
+    and letterboxed/pillarboxed with black, not stretched. Source art is rarely
+    exactly 16:9 (square album art is common), and a plain resize distorts it.
+    """
     out_png = Path(out_png)
-    art = Image.open(cover_png).convert("RGB").resize((width, height))
+    art = ImageOps.pad(
+        Image.open(cover_png).convert("RGB"), (width, height), color=(0, 0, 0), centering=(0.5, 0.5)
+    )
     draw = ImageDraw.Draw(art, "RGBA")
 
     # role-based sizes: each field carries its own size regardless of which are present
@@ -32,8 +58,11 @@ def build_thumbnail(
         rows.append((meta.name, NAME_SIZE))
     if meta.artist:
         rows.append((meta.artist, ARTIST_SIZE))
+    if meta.bpm is not None:
+        rows.append((f"{round(meta.bpm)} BPM", BPM_SIZE))
 
-    fonts = [ImageFont.truetype(font_path, size) for _, size in rows]
+    max_text_width = width - 2 * TEXT_MARGIN
+    fonts = [_fit_font(t, size, font_path, max_text_width) for t, size in rows]
     heights = [
         draw.textbbox((0, 0), t, font=f)[3] - draw.textbbox((0, 0), t, font=f)[1]
         for (t, _), f in zip(rows, fonts, strict=True)
