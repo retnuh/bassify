@@ -1,16 +1,11 @@
 from __future__ import annotations
 
 import re
+import subprocess
 from string import Template
 
 from bassify.render.labels import note_name
 from bassify.render.metadata import TrackMeta
-
-BOOK_URL = (
-    "https://www.halleonard.com/product-family/PC790/"
-    "blues-bass-a-guide-to-the-essential-styles-and-techniques"
-)
-PROJECT_URL = "https://github.com/retnuh/bassify"
 
 # stdlib string.Template has no conditionals -- optional fields (key, bpm,
 # videos) are pre-formatted into whole lines/blocks in render_description()
@@ -24,7 +19,6 @@ Essential Styles and Techniques" by Ed Friedland -- isolated bass line, \
 with the original count-in and narration left intact so it's still \
 practice-along ready.
 $key_line$bpm_line
-Book: $book_url
 $videos_block
 Generated with bassify: $project_url
 
@@ -32,6 +26,30 @@ Generated with bassify: $project_url
 """
 
 _BASS_ONLY_SUFFIX = re.compile(r"\s*\(bass only\)\s*$", re.IGNORECASE)
+_SCP_STYLE = re.compile(r"^git@([^:]+):(.+)$")
+
+
+def _detect_project_url() -> str:
+    """Derive a browsable project URL from `git remote get-url origin`,
+    rather than hardcoding this fork's URL as a constant."""
+    try:
+        remote = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=5,
+        ).stdout.strip()
+    except (subprocess.CalledProcessError, OSError, subprocess.TimeoutExpired):
+        return ""
+
+    scp_match = _SCP_STYLE.match(remote)
+    if scp_match:
+        host, path = scp_match.groups()
+        remote = f"https://{host}/{path}"
+    if remote.endswith(".git"):
+        remote = remote[: -len(".git")]
+    return remote
 
 
 def clean_title(name: str | None) -> str | None:
@@ -51,11 +69,13 @@ def render_description(
     meta: TrackMeta,
     key_root_pc: int | None,
     videos: list[dict] | None = None,
-    book_url: str = BOOK_URL,
-    project_url: str = PROJECT_URL,
+    project_url: str | None = None,
 ) -> str:
     """Fill a stdlib Template blurb from track metadata, for a
     <track>_youtube_description.txt sidecar."""
+    if project_url is None:
+        project_url = _detect_project_url()
+
     name = clean_title(meta.name) or "Untitled"
     title_line = f"{meta.number}: {name}" if meta.number else name
 
@@ -80,6 +100,5 @@ def render_description(
         key_line=key_line,
         bpm_line=bpm_line,
         videos_block=videos_block,
-        book_url=book_url,
         project_url=project_url,
     )

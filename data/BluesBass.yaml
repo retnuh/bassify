@@ -29,7 +29,10 @@
 # fields ($key_line, $bpm_line, $videos_block) are pre-formatted into whole
 # lines/blocks and come through as "" when the data is missing, not as a bare
 # $placeholder -- see render/description.py. Falls back to description.py's
-# own DEFAULT_TEMPLATE if this key is absent.
+# own DEFAULT_TEMPLATE if this key is absent. $project_url is auto-detected
+# from `git remote get-url origin` at render time, not stored here. The book
+# URL is just inline text below -- it's collection-specific prose, not a
+# templated field.
 description_template: |
   $title_line
 
@@ -38,7 +41,7 @@ description_template: |
   with the original count-in and narration left intact so it's still
   practice-along ready.
   $key_line$bpm_line
-  Book: $book_url
+  Book: https://www.halleonard.com/product-family/PC790/
   $videos_block
   Generated with bassify: $project_url
 

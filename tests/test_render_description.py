@@ -82,12 +82,11 @@ def test_render_description_custom_template_uses_placeholders():
     # more letters merges into one (unmatched) name -- braces disambiguate,
     # same footgun a hand-written yaml template could hit.
     meta = TrackMeta("07", "Uptown Up", "Ed Friedland", bpm=100.0)
-    template = "Track $number - $name by $artist. $key_line${bpm_line}Book: $book_url"
+    template = "Track $number - $name by $artist. $key_line${bpm_line}Book: inline text."
     text = render_description(template, meta, key_root_pc=7, videos=None)
 
-    assert text == "Track 07 - Uptown Up by Ed Friedland. Key: G\nTempo: 100 BPM\nBook: " + (
-        "https://www.halleonard.com/product-family/PC790/"
-        "blues-bass-a-guide-to-the-essential-styles-and-techniques"
+    assert text == (
+        "Track 07 - Uptown Up by Ed Friedland. Key: G\nTempo: 100 BPM\nBook: inline text."
     )
 
 
