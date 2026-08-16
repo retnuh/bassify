@@ -42,7 +42,7 @@ description_template: |
   $videos_block
   Generated with bassify: $project_url
 
-  #bassguitar #basscover #bluesbass #basslesson
+  #bassonly #bassguitar #basscover #bluesbass #basslesson
 
 overrides:
   # Auto-detected A min, but the title says F and it is in F. Root F.
